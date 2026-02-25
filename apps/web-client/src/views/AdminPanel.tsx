@@ -358,14 +358,24 @@ const AddTvShowTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [posterPath, setPosterPath] = useState('');
-  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(new Set());
+  const [orderedEpisodeIds, setOrderedEpisodeIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const toggleEpisode = (id: string) => {
-    setSelectedEpisodeIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+    setOrderedEpisodeIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const moveEpisode = (id: string, dir: -1 | 1) => {
+    setOrderedEpisodeIds(prev => {
+      const idx = prev.indexOf(id);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      const swapIdx = idx + dir;
+      if (swapIdx < 0 || swapIdx >= next.length) return prev;
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
       return next;
     });
   };
@@ -374,18 +384,18 @@ const AddTvShowTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
     setTitle('');
     setDescription('');
     setPosterPath('');
-    setSelectedEpisodeIds(new Set());
+    setOrderedEpisodeIds([]);
     setFeedback(null);
   };
 
   const handleSubmit = async () => {
-    if (!title.trim() || selectedEpisodeIds.size === 0) {
+    if (!title.trim() || orderedEpisodeIds.length === 0) {
       setFeedback({ ok: false, msg: 'Title and at least one episode are required.' });
       return;
     }
     setSubmitting(true);
     setFeedback(null);
-    const result = await api.createTvShow(title.trim(), description.trim(), posterPath.trim(), [...selectedEpisodeIds]);
+    const result = await api.createTvShow(title.trim(), description.trim(), posterPath.trim(), orderedEpisodeIds);
     setSubmitting(false);
     if (result) {
       setFeedback({ ok: true, msg: `TV show "${result.title}" created with ${result.episodes?.length ?? 0} episodes.` });
@@ -448,18 +458,23 @@ const AddTvShowTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
 
       <div style={fieldWrap}>
         <label style={labelStyle}>
-          Episodes * — {selectedEpisodeIds.size} selected
+          Episodes * — {orderedEpisodeIds.length} selected
         </label>
-        <div style={{ border: '1px solid #333', borderRadius: '8px', overflow: 'hidden', maxHeight: 320, overflowY: 'auto' }}>
+        <p style={{ margin: '0 0 8px', fontSize: '0.78rem', color: '#555' }}>
+          Check to add in order. Use ↑↓ to reorder. Episode numbers follow this sequence.
+        </p>
+        <div style={{ border: '1px solid #333', borderRadius: '8px', overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
           {mediaItems.length === 0 && (
             <p style={{ color: '#555', padding: '20px', margin: 0, fontSize: '0.9rem' }}>No media files found.</p>
           )}
           {mediaItems.map((item, i) => {
-            const checked = selectedEpisodeIds.has(item.id);
+            const epIdx = orderedEpisodeIds.indexOf(item.id);
+            const checked = epIdx !== -1;
+            const epNum = epIdx + 1;
             return (
-              <label
+              <div
                 key={item.id}
-                style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px 16px', cursor: 'pointer', background: checked ? 'rgba(229,9,20,0.08)' : i % 2 === 0 ? '#1a1a1a' : '#1e1e1e', borderBottom: '1px solid #2a2a2a', transition: 'background 0.1s' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: checked ? 'rgba(229,9,20,0.08)' : i % 2 === 0 ? '#1a1a1a' : '#1e1e1e', borderBottom: '1px solid #2a2a2a', transition: 'background 0.1s' }}
               >
                 <input
                   type="checkbox"
@@ -467,15 +482,40 @@ const AddTvShowTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
                   onChange={() => toggleEpisode(item.id)}
                   style={{ accentColor: '#e50914', width: 16, height: 16, flexShrink: 0, cursor: 'pointer' }}
                 />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: checked ? 500 : 400, color: checked ? '#fff' : '#ccc', fontSize: '0.95rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {/* Episode number badge */}
+                <div style={{ width: 28, flexShrink: 0, textAlign: 'center' }}>
+                  {checked && (
+                    <span style={{ background: '#e50914', color: '#fff', fontSize: '0.68rem', fontWeight: 700, padding: '2px 5px', borderRadius: 4 }}>
+                      E{epNum}
+                    </span>
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => toggleEpisode(item.id)}>
+                  <div style={{ fontWeight: checked ? 500 : 400, color: checked ? '#fff' : '#ccc', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.title ?? item.id}
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: '#555', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#555', marginTop: '2px' }}>
                     Added {new Date(item.dateAdded).toLocaleDateString()}
                   </div>
                 </div>
-              </label>
+                {/* Reorder buttons — only when selected */}
+                {checked && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                    <button
+                      onClick={() => moveEpisode(item.id, -1)}
+                      disabled={epIdx === 0}
+                      title="Move up"
+                      style={{ background: 'none', border: '1px solid #444', color: epIdx === 0 ? '#444' : '#aaa', borderRadius: 3, width: 22, height: 20, cursor: epIdx === 0 ? 'default' : 'pointer', fontSize: '0.65rem', lineHeight: 1, padding: 0 }}
+                    >▲</button>
+                    <button
+                      onClick={() => moveEpisode(item.id, 1)}
+                      disabled={epIdx === orderedEpisodeIds.length - 1}
+                      title="Move down"
+                      style={{ background: 'none', border: '1px solid #444', color: epIdx === orderedEpisodeIds.length - 1 ? '#444' : '#aaa', borderRadius: 3, width: 22, height: 20, cursor: epIdx === orderedEpisodeIds.length - 1 ? 'default' : 'pointer', fontSize: '0.65rem', lineHeight: 1, padding: 0 }}
+                    >▼</button>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -507,6 +547,13 @@ const ManageTab = () => {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // Episode reorder state
+  const [expandedShowId, setExpandedShowId] = useState<string | null>(null);
+  const [episodeOrder, setEpisodeOrder] = useState<MediaItemDto[]>([]);
+  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
+  const [reorderSaving, setReorderSaving] = useState(false);
+  const [reorderFeedback, setReorderFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+
   useEffect(() => {
     api.getCatalog().then(data => { setCatalog(data); setLoading(false); });
   }, []);
@@ -520,6 +567,44 @@ const ManageTab = () => {
     setConfirmId(null);
     if (ok) {
       setCatalog(prev => prev.filter(c => c.id !== item.id));
+      if (expandedShowId === item.id) setExpandedShowId(null);
+    }
+  };
+
+  const toggleEpisodePanel = async (showId: string) => {
+    if (expandedShowId === showId) {
+      setExpandedShowId(null);
+      setReorderFeedback(null);
+      return;
+    }
+    setExpandedShowId(showId);
+    setReorderFeedback(null);
+    setLoadingEpisodes(true);
+    const show = await api.getTvShow(showId);
+    setLoadingEpisodes(false);
+    setEpisodeOrder(show?.episodes ?? []);
+  };
+
+  const moveEpisodeInOrder = (idx: number, dir: -1 | 1) => {
+    setEpisodeOrder(prev => {
+      const next = [...prev];
+      const swapIdx = idx + dir;
+      if (swapIdx < 0 || swapIdx >= next.length) return prev;
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  };
+
+  const handleSaveOrder = async (showId: string) => {
+    setReorderSaving(true);
+    setReorderFeedback(null);
+    const result = await api.reorderTvShowEpisodes(showId, episodeOrder.map(e => e.id));
+    setReorderSaving(false);
+    if (result) {
+      setEpisodeOrder(result.episodes ?? []);
+      setReorderFeedback({ ok: true, msg: 'Episode order saved.' });
+    } else {
+      setReorderFeedback({ ok: false, msg: 'Failed to save order.' });
     }
   };
 
@@ -530,10 +615,10 @@ const ManageTab = () => {
     return <p style={{ color: '#555', padding: '20px 0' }}>Loading…</p>;
   }
 
-  const renderSection = (title: string, items: CatalogItemDTO[]) => (
+  const renderSection = (sectionTitle: string, items: CatalogItemDTO[]) => (
     <div style={{ marginBottom: 40 }}>
       <h3 style={{ margin: '0 0 14px', fontSize: '0.78rem', fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-        {title} ({items.length})
+        {sectionTitle} ({items.length})
       </h3>
       {items.length === 0 ? (
         <p style={{ color: '#444', fontSize: '0.9rem' }}>None yet.</p>
@@ -542,63 +627,132 @@ const ManageTab = () => {
           {items.map(item => {
             const isConfirming = confirmId === item.id;
             const isDeleting = deleting === item.id;
+            const isExpanded = expandedShowId === item.id;
             return (
-              <div
-                key={item.id}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  background: isConfirming ? 'rgba(229,9,20,0.07)' : '#1a1a1a',
-                  border: isConfirming ? '1px solid rgba(229,9,20,0.4)' : '1px solid #2a2a2a',
-                  borderRadius: 8, padding: '12px 16px',
-                  transition: 'background 0.15s, border-color 0.15s',
-                }}
-              >
-                {/* Poster thumbnail */}
-                {item.posterPath ? (
-                  <img src={item.posterPath} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
-                ) : (
-                  <div style={{ width: 36, height: 54, borderRadius: 4, background: '#2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
-                    {item.type === 'Movie' ? '🎬' : '📺'}
-                  </div>
-                )}
+              <div key={item.id}>
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    background: isConfirming ? 'rgba(229,9,20,0.07)' : '#1a1a1a',
+                    border: isConfirming ? '1px solid rgba(229,9,20,0.4)' : isExpanded ? '1px solid #444' : '1px solid #2a2a2a',
+                    borderRadius: isExpanded ? '8px 8px 0 0' : 8,
+                    padding: '12px 16px',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                >
+                  {/* Poster thumbnail */}
+                  {item.posterPath ? (
+                    <img src={item.posterPath} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 36, height: 54, borderRadius: 4, background: '#2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                      {item.type === 'Movie' ? '🎬' : '📺'}
+                    </div>
+                  )}
 
-                {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, fontSize: '0.95rem', color: '#f0f0f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.title ?? '—'}
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, fontSize: '0.95rem', color: '#f0f0f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.title ?? '—'}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#555', marginTop: 2 }}>
+                      Added {new Date(item.dateAdded).toLocaleDateString()}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#555', marginTop: 2 }}>
-                    Added {new Date(item.dateAdded).toLocaleDateString()}
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {/* Edit Episodes button — TV shows only */}
+                    {item.type === 'Show' && !isConfirming && (
+                      <button
+                        onClick={() => toggleEpisodePanel(item.id)}
+                        style={{ background: isExpanded ? '#2a2a2a' : 'none', color: isExpanded ? '#fff' : '#888', border: '1px solid #333', padding: '6px 12px', borderRadius: 5, cursor: 'pointer', fontSize: '0.78rem', transition: 'color 0.15s' }}
+                      >
+                        {isExpanded ? 'Close' : 'Edit Episodes'}
+                      </button>
+                    )}
+                    {isConfirming ? (
+                      <>
+                        <span style={{ fontSize: '0.82rem', color: '#f87171' }}>Delete permanently?</span>
+                        <button
+                          onClick={() => handleDelete(item)}
+                          disabled={isDeleting}
+                          style={{ background: '#e50914', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 5, cursor: isDeleting ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.82rem' }}
+                        >
+                          {isDeleting ? '…' : 'Yes, delete'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmId(null)}
+                          style={{ background: 'none', color: '#888', border: '1px solid #333', padding: '6px 12px', borderRadius: 5, cursor: 'pointer', fontSize: '0.82rem' }}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmId(item.id)}
+                        style={{ background: 'none', color: '#666', border: '1px solid #333', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: '0.82rem', transition: 'color 0.15s, border-color 0.15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.borderColor = '#f87171'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = '#666'; e.currentTarget.style.borderColor = '#333'; }}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Actions */}
-                {isConfirming ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <span style={{ fontSize: '0.82rem', color: '#f87171' }}>Delete permanently?</span>
-                    <button
-                      onClick={() => handleDelete(item)}
-                      disabled={isDeleting}
-                      style={{ background: '#e50914', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 5, cursor: isDeleting ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.82rem' }}
-                    >
-                      {isDeleting ? '…' : 'Yes, delete'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmId(null)}
-                      style={{ background: 'none', color: '#888', border: '1px solid #333', padding: '6px 12px', borderRadius: 5, cursor: 'pointer', fontSize: '0.82rem' }}
-                    >
-                      Cancel
-                    </button>
+                {/* Episode reorder panel */}
+                {isExpanded && (
+                  <div style={{ background: '#141414', border: '1px solid #444', borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '16px' }}>
+                    {loadingEpisodes ? (
+                      <p style={{ color: '#555', margin: 0, fontSize: '0.9rem' }}>Loading episodes…</p>
+                    ) : episodeOrder.length === 0 ? (
+                      <p style={{ color: '#555', margin: 0, fontSize: '0.9rem' }}>No episodes found.</p>
+                    ) : (
+                      <>
+                        <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#666' }}>
+                          Drag or use ↑↓ to reorder. Click Save to apply.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 }}>
+                          {episodeOrder.map((ep, idx) => (
+                            <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1e1e', borderRadius: 6, padding: '8px 12px', border: '1px solid #2a2a2a' }}>
+                              <span style={{ background: '#e50914', color: '#fff', fontSize: '0.68rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, flexShrink: 0, minWidth: 28, textAlign: 'center' }}>
+                                E{idx + 1}
+                              </span>
+                              <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem', color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {ep.title ?? ep.id}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                                <button
+                                  onClick={() => moveEpisodeInOrder(idx, -1)}
+                                  disabled={idx === 0}
+                                  title="Move up"
+                                  style={{ background: 'none', border: '1px solid #333', color: idx === 0 ? '#333' : '#888', borderRadius: 3, width: 22, height: 20, cursor: idx === 0 ? 'default' : 'pointer', fontSize: '0.65rem', padding: 0 }}
+                                >▲</button>
+                                <button
+                                  onClick={() => moveEpisodeInOrder(idx, 1)}
+                                  disabled={idx === episodeOrder.length - 1}
+                                  title="Move down"
+                                  style={{ background: 'none', border: '1px solid #333', color: idx === episodeOrder.length - 1 ? '#333' : '#888', borderRadius: 3, width: 22, height: 20, cursor: idx === episodeOrder.length - 1 ? 'default' : 'pointer', fontSize: '0.65rem', padding: 0 }}
+                                >▼</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {reorderFeedback && (
+                          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 10, background: reorderFeedback.ok ? 'rgba(34,197,94,0.1)' : 'rgba(229,9,20,0.1)', border: `1px solid ${reorderFeedback.ok ? '#22c55e' : '#e50914'}`, color: reorderFeedback.ok ? '#4ade80' : '#f87171', fontSize: '0.82rem' }}>
+                            {reorderFeedback.msg}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => handleSaveOrder(item.id)}
+                          disabled={reorderSaving}
+                          style={{ background: reorderSaving ? '#444' : '#e50914', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 6, cursor: reorderSaving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.85rem' }}
+                        >
+                          {reorderSaving ? 'Saving…' : 'Save Order'}
+                        </button>
+                      </>
+                    )}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmId(item.id)}
-                    style={{ background: 'none', color: '#666', border: '1px solid #333', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: '0.82rem', flexShrink: 0, transition: 'color 0.15s, border-color 0.15s' }}
-                    onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.borderColor = '#f87171'; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = '#666'; e.currentTarget.style.borderColor = '#333'; }}
-                  >
-                    Delete
-                  </button>
                 )}
               </div>
             );

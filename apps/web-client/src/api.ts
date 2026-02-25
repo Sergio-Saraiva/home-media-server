@@ -31,6 +31,8 @@ export interface MediaItemDto {
   id: string;
   title: string | null;
   dateAdded: string;
+  episodeNumber: number | null;
+  seasonNumber: number | null;
 }
 
 export interface MovieDto {
@@ -119,5 +121,14 @@ export const api = {
     const res = await fetch(`${BASE_URL}/Catalog/tv-show/${id}`, { method: 'DELETE' });
     const data: BaseResponse<boolean> = await res.json();
     return data.isSuccess;
+  },
+  reorderTvShowEpisodes: async (tvShowId: string, episodeIds: string[]): Promise<TvShowDto | null> => {
+    const res = await fetch(`${BASE_URL}/Catalog/tv-show/${tvShowId}/episodes/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ episodeIds }),
+    });
+    const data: BaseResponse<TvShowDto> = await res.json();
+    return data.isSuccess ? data.result : null;
   },
 };

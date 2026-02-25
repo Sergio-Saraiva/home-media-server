@@ -42,9 +42,13 @@ public class CreateTvShowCommandHandler : IRequestHandler<CreateTvShowCommand, R
                 throw new ApiErrorException(HttpStatusCode.BadRequest, "No episodes provided for TV show creation");
             }
 
+            var showId = Guid.CreateVersion7();
+            for (int i = 0; i < episodes.Count; i++)
+                episodes[i].LinkToShow(showId, season: 1, episode: i + 1);
+
             var tvShow = await _tvShowRepository.AddTvShowAsync(new TvShow
             {
-                Id = Guid.CreateVersion7(),
+                Id = showId,
                 PosterPath = request.PosterPath,
                 Title = request.Title,
                 Episodes = episodes,
@@ -61,11 +65,13 @@ public class CreateTvShowCommandHandler : IRequestHandler<CreateTvShowCommand, R
                 Description = tvShow.Description,
                 CreatedAt = tvShow.CreatedAt,
                 Id = tvShow.Id,
-                Episodes = tvShow.Episodes.Select(e => new MediaItemDto
+                Episodes = tvShow.Episodes.OrderBy(e => e.EpisodeNumber).Select(e => new MediaItemDto
                 {
                     Id = e.Id,
                     Title = e.OriginalFileName,
-                    DateAdded = e.IngestedAt
+                    DateAdded = e.IngestedAt,
+                    EpisodeNumber = e.EpisodeNumber,
+                    SeasonNumber = e.SeasonNumber
                 }).ToList()
             });
         }catch(Exception e)

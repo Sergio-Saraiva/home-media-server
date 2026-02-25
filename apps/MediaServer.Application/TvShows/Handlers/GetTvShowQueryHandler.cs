@@ -32,11 +32,13 @@ public class GetTvShowQueryHandler : IRequestHandler<GetTvShowQuery, Result<TvSh
                 Id = tvShow.Id,
                 Title = tvShow.Title,
                 CreatedAt = tvShow.CreatedAt,
-                Episodes = tvShow.Episodes.Select(ep => new MediaItemDto
+                Episodes = tvShow.Episodes.OrderBy(ep => ep.EpisodeNumber).Select(ep => new MediaItemDto
                 {
                     Id = ep.Id,
                     Title = ep.OriginalFileName,
-                    DateAdded = ep.IngestedAt
+                    DateAdded = ep.IngestedAt,
+                    EpisodeNumber = ep.EpisodeNumber,
+                    SeasonNumber = ep.SeasonNumber
                 }).ToList()
             });
         }
