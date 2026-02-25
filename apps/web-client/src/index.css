@@ -1,0 +1,40 @@
+body {
+  margin: 0;
+  font-family: 'Inter', 'Helvetica Neue', sans-serif;
+  background-color: #141414;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+
+a { text-decoration: none; color: inherit; }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #141414; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Player controls */
+.progress-bar {
+  height: 4px;
+  transition: height 0.15s ease;
+}
+.progress-bar:hover {
+  height: 8px;
+}
+
+.player-btn {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  opacity: 0.85;
+  transition: opacity 0.15s, transform 0.1s;
+  line-height: 1;
+}
+.player-btn:hover { opacity: 1; transform: scale(1.1); }
+.player-btn:focus { outline: 2px solid #e50914; outline-offset: 2px; }

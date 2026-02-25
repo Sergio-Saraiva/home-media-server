@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/apps/">
+    <Project Path="apps/MediaServer.Api/MediaServer.Api.csproj" />
+    <Project Path="apps/MediaServer.Application/MediaServer.Application.csproj" />
+    <Project Path="apps/MediaServer.Domain/MediaServer.Domain.csproj" />
+    <Project Path="apps/MediaServer.Infrastructure/MediaServer.Infrastructure.csproj" />
+    <Project Path="apps/MediaServer.IOC/MediaServer.IOC.csproj" />
+  </Folder>
+</Solution>

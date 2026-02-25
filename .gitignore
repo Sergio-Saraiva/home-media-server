@@ -1,0 +1,70 @@
+
+# ── .NET / C# ────────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.DotSettings.user
+*.dll
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Publish output
+publish/
+out/
+
+# ── ASP.NET Core ─────────────────────────────────────────────────────────────
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Staging.json
+
+# ── Node.js / npm ────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Vite / React build ───────────────────────────────────────────────────────
+apps/web-client/dist/
+apps/web-client/dist-ssr/
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.local
+
+# ── Tizen TV ─────────────────────────────────────────────────────────────────
+*.wgt
+
+# Certificates (private keys)
+*.p12
+*.pfx
+*.pem
+*.key
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
