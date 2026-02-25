@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type MediaItemDto, type SubtitleDto } from '../api';
+import { api, type CatalogItemDTO, type MediaItemDto, type SubtitleDto } from '../api';
 
 // ── Library tab types ────────────────────────────────────────────────────────
 interface ItemState {
@@ -48,7 +48,7 @@ const fieldWrap: React.CSSProperties = {
   gap: '6px',
 };
 
-type Tab = 'library' | 'add-movie' | 'add-tv-show';
+type Tab = 'library' | 'add-movie' | 'add-tv-show' | 'manage';
 
 // ── Component ────────────────────────────────────────────────────────────────
 export const AdminPanel = () => {
@@ -77,8 +77,8 @@ export const AdminPanel = () => {
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: '28px', borderBottom: '1px solid #2a2a2a', paddingBottom: '0' }}>
-        {(['library', 'add-movie', 'add-tv-show'] as Tab[]).map(tab => {
-          const labels: Record<Tab, string> = { library: 'Library', 'add-movie': 'Add Movie', 'add-tv-show': 'Add TV Show' };
+        {(['library', 'add-movie', 'add-tv-show', 'manage'] as Tab[]).map(tab => {
+          const labels: Record<Tab, string> = { library: 'Library', 'add-movie': 'Add Movie', 'add-tv-show': 'Add TV Show', manage: 'Manage' };
           const active = activeTab === tab;
           return (
             <button
@@ -106,6 +106,7 @@ export const AdminPanel = () => {
       {activeTab === 'library' && <LibraryTab mediaItems={mediaItems} />}
       {activeTab === 'add-movie' && <AddMovieTab mediaItems={mediaItems} />}
       {activeTab === 'add-tv-show' && <AddTvShowTab mediaItems={mediaItems} />}
+      {activeTab === 'manage' && <ManageTab />}
     </div>
   );
 };
@@ -496,5 +497,124 @@ const AddTvShowTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
         </button>
       </div>
     </div>
+  );
+};
+
+// ── Manage tab ────────────────────────────────────────────────────────────────
+const ManageTab = () => {
+  const [catalog, setCatalog] = useState<CatalogItemDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getCatalog().then(data => { setCatalog(data); setLoading(false); });
+  }, []);
+
+  const handleDelete = async (item: CatalogItemDTO) => {
+    setDeleting(item.id);
+    const ok = item.type === 'Movie'
+      ? await api.deleteMovie(item.id)
+      : await api.deleteTvShow(item.id);
+    setDeleting(null);
+    setConfirmId(null);
+    if (ok) {
+      setCatalog(prev => prev.filter(c => c.id !== item.id));
+    }
+  };
+
+  const movies = catalog.filter(c => c.type === 'Movie');
+  const shows = catalog.filter(c => c.type === 'Show');
+
+  if (loading) {
+    return <p style={{ color: '#555', padding: '20px 0' }}>Loading…</p>;
+  }
+
+  const renderSection = (title: string, items: CatalogItemDTO[]) => (
+    <div style={{ marginBottom: 40 }}>
+      <h3 style={{ margin: '0 0 14px', fontSize: '0.78rem', fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        {title} ({items.length})
+      </h3>
+      {items.length === 0 ? (
+        <p style={{ color: '#444', fontSize: '0.9rem' }}>None yet.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {items.map(item => {
+            const isConfirming = confirmId === item.id;
+            const isDeleting = deleting === item.id;
+            return (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  background: isConfirming ? 'rgba(229,9,20,0.07)' : '#1a1a1a',
+                  border: isConfirming ? '1px solid rgba(229,9,20,0.4)' : '1px solid #2a2a2a',
+                  borderRadius: 8, padding: '12px 16px',
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+              >
+                {/* Poster thumbnail */}
+                {item.posterPath ? (
+                  <img src={item.posterPath} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                ) : (
+                  <div style={{ width: 36, height: 54, borderRadius: 4, background: '#2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                    {item.type === 'Movie' ? '🎬' : '📺'}
+                  </div>
+                )}
+
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: '0.95rem', color: '#f0f0f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.title ?? '—'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#555', marginTop: 2 }}>
+                    Added {new Date(item.dateAdded).toLocaleDateString()}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                {isConfirming ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: '0.82rem', color: '#f87171' }}>Delete permanently?</span>
+                    <button
+                      onClick={() => handleDelete(item)}
+                      disabled={isDeleting}
+                      style={{ background: '#e50914', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 5, cursor: isDeleting ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.82rem' }}
+                    >
+                      {isDeleting ? '…' : 'Yes, delete'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      style={{ background: 'none', color: '#888', border: '1px solid #333', padding: '6px 12px', borderRadius: 5, cursor: 'pointer', fontSize: '0.82rem' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(item.id)}
+                    style={{ background: 'none', color: '#666', border: '1px solid #333', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: '0.82rem', flexShrink: 0, transition: 'color 0.15s, border-color 0.15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.borderColor = '#f87171'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = '#666'; e.currentTarget.style.borderColor = '#333'; }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {catalog.length === 0 && (
+        <p style={{ color: '#555', padding: '20px 0' }}>No movies or TV shows in the catalog yet.</p>
+      )}
+      {renderSection('Movies', movies)}
+      {renderSection('TV Shows', shows)}
+    </>
   );
 };

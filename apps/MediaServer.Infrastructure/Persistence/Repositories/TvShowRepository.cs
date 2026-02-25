@@ -29,4 +29,10 @@ public class TvShowRepository : ITvShowRepository
     {
         return await _dbContext.TvShows.ToListAsync();
     }
+
+    public Task DeleteAsync(TvShow tvShow)
+    {
+        _dbContext.TvShows.Remove(tvShow);
+        return Task.CompletedTask;
+    }
 }

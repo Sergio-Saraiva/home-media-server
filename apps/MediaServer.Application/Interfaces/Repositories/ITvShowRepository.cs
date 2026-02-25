@@ -7,4 +7,5 @@ public interface ITvShowRepository
     Task<TvShow?> GetByIdAsync(Guid id);
     Task<TvShow> AddTvShowAsync(TvShow tvShow);
     Task<List<TvShow>> GetAllTvShowsAsync();
+    Task DeleteAsync(TvShow tvShow);
 }

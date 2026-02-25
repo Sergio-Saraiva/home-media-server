@@ -8,4 +8,5 @@ public interface IMovieRepository
     Task<Movie?> GetByMediaItemIdAsync(Guid mediaItemId);
     Task<List<Movie>> GetAllMoviesAsync();
     Task<Movie> AddMovieAsync(Movie movie);
+    Task DeleteAsync(Movie movie);
 }

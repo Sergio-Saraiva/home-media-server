@@ -34,4 +34,10 @@ public class MovieRepository : IMovieRepository
         await _context.Movies.AddAsync(movie);
         return movie;
     }
+
+    public Task DeleteAsync(Movie movie)
+    {
+        _context.Movies.Remove(movie);
+        return Task.CompletedTask;
+    }
 }

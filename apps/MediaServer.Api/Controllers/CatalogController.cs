@@ -64,6 +64,16 @@ public class CatalogController : BaseController
         return await SendRequest(query);
     }
     
+    [HttpDelete("movie/{id}")]
+    [ProducesResponseType(200, Type = typeof(ResponseMessage<bool>))]
+    public async Task<IActionResult> DeleteMovie(Guid id)
+        => await SendRequest(new DeleteMovieCommand { MovieId = id });
+
+    [HttpDelete("tv-show/{id}")]
+    [ProducesResponseType(200, Type = typeof(ResponseMessage<bool>))]
+    public async Task<IActionResult> DeleteTvShow(Guid id)
+        => await SendRequest(new DeleteTvShowCommand { TvShowId = id });
+
     [HttpGet]
     [ProducesResponseType(200, Type = typeof(ResponseMessage<List<CatalogItemDTO>>))]
     public async Task<IActionResult> GetCatalog()

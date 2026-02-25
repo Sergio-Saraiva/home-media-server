@@ -110,4 +110,14 @@ export const api = {
     const data: BaseResponse<TvShowDto> = await res.json();
     return data.isSuccess ? data.result : null;
   },
+  deleteMovie: async (id: string): Promise<boolean> => {
+    const res = await fetch(`${BASE_URL}/Catalog/movie/${id}`, { method: 'DELETE' });
+    const data: BaseResponse<boolean> = await res.json();
+    return data.isSuccess;
+  },
+  deleteTvShow: async (id: string): Promise<boolean> => {
+    const res = await fetch(`${BASE_URL}/Catalog/tv-show/${id}`, { method: 'DELETE' });
+    const data: BaseResponse<boolean> = await res.json();
+    return data.isSuccess;
+  },
 };
