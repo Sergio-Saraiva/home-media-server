@@ -25,6 +25,11 @@ public class MediaRepository : IMediaRepository
         return await _context.MediaItems.AnyAsync(m => m.FilePath == filePath);
     }
 
+    public async Task<MediaItem?> GetByPathAsync(string filePath)
+    {
+        return await _context.MediaItems.FirstOrDefaultAsync(m => m.FilePath == filePath);
+    }
+
     public async Task<List<MediaItem>> GetAllMediaItemsAsync()
     {
         return await _context.MediaItems.ToListAsync();

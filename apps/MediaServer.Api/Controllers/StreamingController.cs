@@ -72,7 +72,7 @@ public class StreamingController : ControllerBase
             return NotFound();
         }
 
-        return PhysicalFile(result.Value, "text/vtt");
+        return PhysicalFile(result.Value, "text/vtt; charset=utf-8");
     }
     
     // Make sure your previous GetHlsSegment endpoint is updated to point to the new VOD directory!

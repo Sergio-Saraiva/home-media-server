@@ -35,6 +35,17 @@ public class IngestMediaCommandHandler : IRequestHandler<IngestMediaCommand, Res
                 throw new ApiErrorException(HttpStatusCode.BadRequest, $"Media file not found at '{request.FilePath}'");
             }
 
+            var existing = await _mediaRepository.GetByPathAsync(request.FilePath);
+            if (existing is not null)
+            {
+                return Result.Success(new IngestMediaResponse
+                {
+                    Id = existing.Id,
+                    Title = existing.OriginalFileName,
+                    CreateAt = existing.IngestedAt
+                });
+            }
+
             var (sizeBytes, codec) = await _fileAnalyzer.AnalyzeFileAsync(request.FilePath);
 
             var fileName = Path.GetFileNameWithoutExtension(request.FilePath);

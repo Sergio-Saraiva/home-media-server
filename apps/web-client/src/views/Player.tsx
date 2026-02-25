@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import shaka from 'shaka-player/dist/shaka-player.ui';
-import { api, BASE_URL, type SubtitleDto } from '../api';
+import { api, BASE_URL, type SubtitleDto, type TranscodeStatus } from '../api';
 
 type ControlMode = 'playback' | 'controls' | 'subtitle-menu';
 
@@ -53,7 +53,12 @@ export const Player = () => {
 
   // Subtitle data
   const [subtitles, setSubtitles] = useState<SubtitleDto[]>([]);
+  const [subtitlesLoading, setSubtitlesLoading] = useState(true);
   const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
+
+  // Transcode state
+  const [transcodeStatus, setTranscodeStatus] = useState<TranscodeStatus | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- Auto-hide controls ---
   const showControls = useCallback(() => {
@@ -80,12 +85,42 @@ export const Player = () => {
     const player = new shaka.Player(videoRef.current);
     playerRef.current = player;
 
-    player.load(`${BASE_URL}/Streaming/hls/master/${mediaId}.m3u8`)
-      .catch(err => console.error('Shaka load error:', err));
+    api.getSubtitles(mediaId).then(subs => {
+      setSubtitles(subs);
+      setSubtitlesLoading(false);
+    });
 
-    api.getSubtitles(mediaId).then(setSubtitles);
+    let cancelled = false;
+
+    const checkAndLoad = async () => {
+      while (!cancelled) {
+        const status = await api.getTranscodeStatus(mediaId);
+        if (cancelled) break;
+
+        setTranscodeStatus(status);
+
+        if (!status || status.status === 'Completed') {
+          player.load(`${BASE_URL}/Streaming/hls/master/${mediaId}.m3u8`)
+            .catch(err => console.error('Shaka load error:', err));
+          break;
+        }
+
+        if (status.status === 'Failed') {
+          break; // show error state, stop polling
+        }
+
+        // Still processing — poll every 3 seconds
+        await new Promise<void>(resolve => {
+          pollTimerRef.current = setTimeout(resolve, 3000);
+        });
+      }
+    };
+
+    checkAndLoad();
 
     return () => {
+      cancelled = true;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       player.destroy();
       playerRef.current = null;
     };
@@ -173,20 +208,14 @@ export const Player = () => {
     if (!player) return;
 
     if (!sub) {
-      (player as any).setTextTrackVisibility(false);
+      player.setTextVisibility(false);
       setActiveSubtitleId(null);
     } else {
-      const fileName = sub.filePath.split('/').pop()?.split('\\').pop();
-      if (!fileName) return;
-      const trackUrl = `${BASE_URL}/Streaming/hls/${mediaId}/${fileName}`;
+      const trackUrl = `${BASE_URL}/Streaming/hls/${mediaId}/subtitles/${sub.id}`;
       try {
-        await player.addTextTrackAsync(trackUrl, sub.language, 'subtitle', 'text/vtt');
-        const tracks = player.getTextTracks();
-        const track = tracks.find(t => t.language === sub.language);
-        if (track) {
-          player.selectTextTrack(track);
-          (player as any).setTextTrackVisibility(true);
-        }
+        const track = await player.addTextTrackAsync(trackUrl, sub.language, 'subtitle', 'text/vtt');
+        player.selectTextTrack(track);
+        player.setTextVisibility(true);
         setActiveSubtitleId(sub.id);
       } catch (err) {
         console.error('Failed to load subtitle track', err);
@@ -353,6 +382,23 @@ export const Player = () => {
       {/* Video */}
       <video ref={videoRef} autoPlay style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
 
+      {/* Transcode progress overlay */}
+      {transcodeStatus && transcodeStatus.status !== 'Completed' && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', gap: '20px', pointerEvents: 'none' }}>
+          {transcodeStatus.status === 'Failed' ? (
+            <span style={{ color: '#e50914', fontSize: '1.2rem' }}>Transcoding failed. Try again later.</span>
+          ) : (
+            <>
+              <span style={{ color: '#fff', fontSize: '1.1rem' }}>Preparing video…</span>
+              <div style={{ width: 280, height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 3 }}>
+                <div style={{ height: '100%', width: `${transcodeStatus.percentageStatus}%`, background: '#e50914', borderRadius: 3, transition: 'width 0.5s' }} />
+              </div>
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem' }}>{Math.round(transcodeStatus.percentageStatus)}%</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Center pause icon — shown when paused and controls hidden */}
       {!isPlaying && !controlsVisible && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -402,62 +448,106 @@ export const Player = () => {
           <div style={{ flex: 1 }} />
 
           <button
-            style={{ ...btnStyle(CTRL_CC), fontSize: '0.8rem', fontWeight: 700, color: activeSubtitleId ? '#e50914' : 'white', borderColor: activeSubtitleId ? '#e50914' : (controlMode === 'controls' && controlFocusIndex === CTRL_CC ? '#fff' : 'transparent') }}
+            style={{
+              ...btnStyle(CTRL_CC),
+              fontSize: '0.75rem', fontWeight: 700,
+              color: activeSubtitleId ? '#e50914' : 'white',
+              borderColor: activeSubtitleId ? '#e50914' : (controlMode === 'controls' && controlFocusIndex === CTRL_CC ? '#fff' : 'transparent'),
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.2,
+            }}
             onClick={() => { setSubtitleMenuOpen(o => !o); setControlMode('subtitle-menu'); setSubtitleFocusIndex(0); }}
           >
-            CC
+            <span>CC</span>
+            {activeSubtitleId && (
+              <span style={{ fontSize: '0.55rem', letterSpacing: '0.06em', opacity: 0.85 }}>
+                {subtitles.find(s => s.id === activeSubtitleId)?.language?.toUpperCase() ?? ''}
+              </span>
+            )}
           </button>
           <button style={btnStyle(CTRL_MUTE)} onClick={toggleMute}>{volumeIcon}</button>
           <button style={btnStyle(CTRL_FULLSCREEN)} onClick={toggleFullscreen}>{isFullscreen ? '✕FS' : '⛶'}</button>
         </div>
       </div>
 
-      {/* ── SUBTITLE SIDE PANEL ── */}
+      {/* ── SUBTITLE PANEL (centered glass card) ── */}
       {subtitleMenuOpen && controlsVisible && (
         <div
+          className="subtitle-panel"
           style={{
-            position: 'absolute', top: 0, right: 0, bottom: 0,
-            width: 260, background: 'rgba(14,14,14,0.97)',
-            borderLeft: '1px solid #2a2a2a',
-            display: 'flex', flexDirection: 'column',
+            position: 'absolute',
+            bottom: 148,
+            left: '50%',
+            width: 320,
+            background: 'rgba(16,16,16,0.88)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 12px 48px rgba(0,0,0,0.75)',
             zIndex: 20,
+            overflow: 'hidden',
           }}
           onClick={e => e.stopPropagation()}
         >
-          <div style={{ padding: '24px 20px 12px', borderBottom: '1px solid #2a2a2a' }}>
-            <div style={{ fontSize: '0.75rem', color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Subtitles</div>
+          {/* Header */}
+          <div style={{
+            padding: '14px 18px 12px',
+            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+              Subtitles
+            </span>
+            {activeSubtitleId && (
+              <span style={{ fontSize: '0.68rem', background: '#e50914', color: '#fff', padding: '2px 9px', borderRadius: 99, fontWeight: 700, letterSpacing: '0.05em' }}>
+                {subtitles.find(s => s.id === activeSubtitleId)?.language?.toUpperCase() ?? 'ON'}
+              </span>
+            )}
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-            {/* Off option */}
-            {[null, ...subtitles].map((sub, i) => {
-              const isFocused = subtitleFocusIndex === i;
-              const isActive = sub === null ? activeSubtitleId === null : activeSubtitleId === sub.id;
-              return (
-                <button
-                  key={sub?.id ?? 'off'}
-                  onClick={() => handleSubtitleSelect(sub)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    width: '100%', textAlign: 'left',
-                    padding: '14px 20px',
-                    background: isFocused ? '#fff' : 'transparent',
-                    color: isFocused ? '#000' : isActive ? '#e50914' : '#fff',
-                    border: 'none', cursor: 'pointer',
-                    fontSize: '1rem',
-                    fontWeight: isActive ? 600 : 400,
-                    transition: 'background 0.1s',
-                  }}
-                >
-                  <span style={{ fontSize: '0.7rem' }}>{isActive ? '●' : '○'}</span>
-                  <span>{sub === null ? 'Off' : `${sub.language}${sub.label ? ` (${sub.label})` : ''}`}</span>
-                </button>
-              );
-            })}
+          {/* Track list */}
+          <div style={{ padding: '6px 0 8px', maxHeight: 260, overflowY: 'auto' }}>
+            {subtitlesLoading ? (
+              <div style={{ padding: '20px', color: 'rgba(255,255,255,0.35)', fontSize: '0.9rem', textAlign: 'center' }}>Loading…</div>
+            ) : (
+              [null, ...subtitles].map((sub, i) => {
+                const isFocused = subtitleFocusIndex === i;
+                const isActive = sub === null ? activeSubtitleId === null : activeSubtitleId === sub.id;
+                const label = sub === null ? 'Off' : (sub.label || sub.language);
+                return (
+                  <div key={sub?.id ?? 'off'} style={{ padding: '2px 8px' }}>
+                    <button
+                      onClick={() => handleSubtitleSelect(sub)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        width: '100%', textAlign: 'left',
+                        padding: '10px 12px',
+                        background: isFocused ? 'rgba(255,255,255,0.93)' : 'transparent',
+                        color: isFocused ? '#111' : isActive ? '#e50914' : 'rgba(255,255,255,0.82)',
+                        border: 'none', cursor: 'pointer',
+                        fontSize: '0.95rem',
+                        fontWeight: isActive || isFocused ? 600 : 400,
+                        transition: 'background 0.12s',
+                        borderRadius: 9,
+                      }}
+                    >
+                      <span style={{ width: 18, flexShrink: 0, fontSize: '0.85rem', color: isActive ? (isFocused ? '#111' : '#e50914') : 'transparent' }}>✓</span>
+                      <span style={{ flex: 1 }}>{label}</span>
+                      {isActive && !isFocused && (
+                        <span style={{ fontSize: '0.62rem', background: 'rgba(229,9,20,0.15)', color: '#e50914', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
+                          ACTIVE
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
 
-          <div style={{ padding: '16px 20px', borderTop: '1px solid #2a2a2a' }}>
-            <span style={{ fontSize: '0.75rem', color: '#555' }}>↑/↓ navigate · Enter select · ← close</span>
+          {/* Footer hint */}
+          <div style={{ padding: '8px 18px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>↑/↓ navigate · Enter select · ← close</span>
           </div>
         </div>
       )}

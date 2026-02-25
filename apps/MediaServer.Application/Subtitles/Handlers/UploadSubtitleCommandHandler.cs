@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using MediaServer.Application.Common;
 using MediaServer.Application.Interfaces.Repositories;
 using MediaServer.Application.Interfaces.Services;
@@ -22,6 +23,34 @@ public class UploadSubtitleCommandHandler : IRequestHandler<UploadSubtitleComman
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMediaRepository _mediaRepository;
     private readonly ISubtitleRepository _subtitleRepository;
+
+    private static string DecodeSubtitleBytes(byte[] bytes)
+    {
+        // UTF-16 LE (BOM: FF FE) — common from Windows Notepad and some subtitle editors
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return Encoding.Unicode.GetString(bytes);
+
+        // UTF-16 BE (BOM: FE FF)
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return Encoding.BigEndianUnicode.GetString(bytes);
+
+        // UTF-8 with BOM (EF BB BF) — strip BOM then decode
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+
+        // Try strict UTF-8 — throws on any invalid byte sequence
+        try
+        {
+            var strictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+            return strictUtf8.GetString(bytes);
+        }
+        catch
+        {
+            // Fall back to Latin-1 (ISO-8859-1) — built-in on all platforms,
+            // covers all standard PT-BR characters: ã, ê, ç, ó, é, í, ú, â, ô, à
+            return Encoding.Latin1.GetString(bytes);
+        }
+    }
     
     public async Task<Result<Guid>> Handle(UploadSubtitleCommand request, CancellationToken cancellationToken)
     {
@@ -45,19 +74,16 @@ public class UploadSubtitleCommandHandler : IRequestHandler<UploadSubtitleComman
             var fileBytes = memoryStream.ToArray();
 
 
-            // 2. Attempt to decode as UTF-8
-            var content = Encoding.UTF8.GetString(fileBytes);
+            string content = DecodeSubtitleBytes(fileBytes);
 
-            // 3. If UTF-8 fails (produces the \uFFFD replacement character), fallback to Latin-1
-            if (content.Contains('\uFFFD'))
-            {
-                content = Encoding.Latin1.GetString(fileBytes);
-            }
-
-            // 4. Convert SRT to WebVTT
+            // Convert SRT to WebVTT: only replace commas in timestamp lines, not in dialogue
             if (request.FileName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase))
             {
-                content = "WEBVTT\n\n" + content.Replace(",", ".");
+                content = "WEBVTT\n\n" + Regex.Replace(
+                    content,
+                    @"(\d{2}:\d{2}:\d{2}),(\d{3})",
+                    "$1.$2"
+                );
             }
             
             await File.WriteAllTextAsync(filePath, content, Encoding.UTF8, cancellationToken);
@@ -65,11 +91,11 @@ public class UploadSubtitleCommandHandler : IRequestHandler<UploadSubtitleComman
             var subtitle = new SubtitleTrack
             {
                 Id = Guid.CreateVersion7(),
-                
-                MediaItemId = request.MediaId, 
-                Language = request.Language, 
-                Label = request.Language, 
-                FilePath = safeFileName
+
+                MediaItemId = request.MediaId,
+                Language = request.Language,
+                Label = request.Language,
+                FilePath = filePath
             };
             
             await _subtitleRepository.AddSubtitleAsync(subtitle);

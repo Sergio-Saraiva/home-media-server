@@ -38,3 +38,12 @@ a { text-decoration: none; color: inherit; }
 }
 .player-btn:hover { opacity: 1; transform: scale(1.1); }
 .player-btn:focus { outline: 2px solid #e50914; outline-offset: 2px; }
+
+/* Subtitle panel */
+@keyframes subtitle-panel-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.subtitle-panel {
+  animation: subtitle-panel-in 0.18s ease-out forwards;
+}

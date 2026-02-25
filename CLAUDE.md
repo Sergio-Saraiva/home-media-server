@@ -8,6 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Frontend Integration Workflow
+
+**Before making any change to `api.ts` or any frontend fetch call**, read `swagger.json` at the repo root to verify endpoint paths, parameter names, and DTO shapes. Do not guess or reuse old URLs — always confirm against the spec first.
+
+---
+
 ## Commands
 
 ### Backend (.NET 10)

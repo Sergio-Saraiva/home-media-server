@@ -26,6 +26,7 @@ out/
 appsettings.Development.json
 appsettings.Production.json
 appsettings.Staging.json
+swagger.json
 
 # ── Node.js / npm ────────────────────────────────────────────────────────────
 node_modules/

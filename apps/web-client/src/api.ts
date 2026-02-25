@@ -6,6 +6,12 @@ export interface BaseResponse<T> {
   isSuccess: boolean;
 }
 
+export interface TranscodeStatus {
+  percentageStatus: number;
+  status: string; // "Processing" | "Completed" | "Failed" | "Pending or Not Found"
+  errorMessage: string | null;
+}
+
 export interface SubtitleDto {
   id: string;
   language: string;
@@ -69,6 +75,11 @@ export const api = {
     const res = await fetch(`${BASE_URL}/Subtitles/${mediaId}`);
     const data: BaseResponse<SubtitleDto[]> = await res.json();
     return data.isSuccess ? data.result : [];
+  },
+  getTranscodeStatus: async (mediaId: string): Promise<TranscodeStatus | null> => {
+    const res = await fetch(`${BASE_URL}/Streaming/hls/${mediaId}/progress`);
+    const data: BaseResponse<TranscodeStatus> = await res.json();
+    return data.isSuccess ? data.result : null;
   },
   uploadSubtitle: async (mediaId: string, file: File, language: string): Promise<boolean> => {
     const formData = new FormData();
