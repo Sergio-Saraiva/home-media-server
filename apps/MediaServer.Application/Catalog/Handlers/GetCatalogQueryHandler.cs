@@ -33,7 +33,7 @@ public class GetCatalogQueryHandler : IRequestHandler<GetCatalogQuery, Result<Li
                 Id = m.Id,
                 Title = m.Title, 
                 Type = "Movie", 
-                PosterPath = null, 
+                PosterPath = m.PosterPath,
                 DateAdded = m.CreatedAt
             }));
             

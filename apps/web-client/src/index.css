@@ -39,6 +39,35 @@ a { text-decoration: none; color: inherit; }
 .player-btn:hover { opacity: 1; transform: scale(1.1); }
 .player-btn:focus { outline: 2px solid #e50914; outline-offset: 2px; }
 
+/* Catalog horizontal scroll rows — hide scrollbar, keep functionality */
+.row-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.row-scroll::-webkit-scrollbar { display: none; }
+
+/* Skeleton shimmer for loading cards */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #1e1e1e 25%, #2a2a2a 50%, #1e1e1e 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 8px;
+}
+
+/* Catalog card hover (desktop) */
+.catalog-card {
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.catalog-card:hover {
+  transform: scale(1.04);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+}
+
 /* Subtitle panel */
 @keyframes subtitle-panel-in {
   from { opacity: 0; transform: translateX(-50%) translateY(16px); }

@@ -92,4 +92,22 @@ export const api = {
     const data = await res.json();
     return data.isSuccess;
   },
+  createMovie: async (mediaItemId: string, title: string, description: string, posterPath: string): Promise<MovieDto | null> => {
+    const res = await fetch(`${BASE_URL}/Catalog/create-movie`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mediaItemId, title, description, posterPath }),
+    });
+    const data: BaseResponse<MovieDto> = await res.json();
+    return data.isSuccess ? data.result : null;
+  },
+  createTvShow: async (title: string, description: string, posterPath: string, episodes: string[]): Promise<TvShowDto | null> => {
+    const res = await fetch(`${BASE_URL}/Catalog/create-tv-show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description, posterPath, episodes }),
+    });
+    const data: BaseResponse<TvShowDto> = await res.json();
+    return data.isSuccess ? data.result : null;
+  },
 };

@@ -19,6 +19,11 @@ public class MovieRepository : IMovieRepository
         return await _context.Movies.Include(x => x.MediaItem).FirstOrDefaultAsync(m => m.Id == id);
     }
 
+    public async Task<Movie?> GetByMediaItemIdAsync(Guid mediaItemId)
+    {
+        return await _context.Movies.FirstOrDefaultAsync(m => m.MediaItemId == mediaItemId);
+    }
+
     public async Task<List<Movie>> GetAllMoviesAsync()
     {
         return await _context.Movies.ToListAsync();
