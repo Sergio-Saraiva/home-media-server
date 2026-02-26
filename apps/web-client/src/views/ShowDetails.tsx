@@ -31,19 +31,28 @@ export const ShowDetails = () => {
   useEffect(() => {
     if (episodes.length === 0) return;
     let cancelled = false;
+    const known: Record<string, TranscodeStatus | null> = {};
 
-    const fetchAll = async () => {
+    const poll = async () => {
+      const toFetch = episodes.filter(ep => {
+        const s = known[ep.id];
+        return s?.status !== 'Completed' && s?.status !== 'Failed';
+      });
+      if (toFetch.length === 0) return;
+
       const entries = await Promise.all(
-        episodes.map(ep => api.getTranscodeStatus(ep.id).then(s => [ep.id, s] as const))
+        toFetch.map(ep => api.getTranscodeStatus(ep.id).then(s => [ep.id, s] as const))
       );
       if (cancelled) return;
-      const map = Object.fromEntries(entries);
-      setEpStatuses(map);
-      if (Object.values(map).some(s => s?.status === 'Processing'))
-        setTimeout(fetchAll, 5000);
+
+      entries.forEach(([id, s]) => { known[id] = s; });
+      setEpStatuses({ ...known });
+
+      if (Object.values(known).some(s => s?.status !== 'Completed' && s?.status !== 'Failed'))
+        setTimeout(poll, 5000);
     };
 
-    fetchAll();
+    poll();
     return () => { cancelled = true; };
   }, [show?.id]);
 

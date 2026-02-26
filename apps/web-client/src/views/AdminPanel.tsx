@@ -126,19 +126,28 @@ const LibraryTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
   useEffect(() => {
     if (mediaItems.length === 0) return;
     let cancelled = false;
+    const known: Record<string, TranscodeStatus | null> = {};
 
-    const fetchAll = async () => {
+    const poll = async () => {
+      const toFetch = mediaItems.filter(item => {
+        const s = known[item.id];
+        return s?.status !== 'Completed' && s?.status !== 'Failed';
+      });
+      if (toFetch.length === 0) return;
+
       const entries = await Promise.all(
-        mediaItems.map(item => api.getTranscodeStatus(item.id).then(s => [item.id, s] as const))
+        toFetch.map(item => api.getTranscodeStatus(item.id).then(s => [item.id, s] as const))
       );
       if (cancelled) return;
-      const map = Object.fromEntries(entries);
-      setTxStatuses(map);
-      if (Object.values(map).some(s => s?.status === 'Processing'))
-        setTimeout(fetchAll, 5000);
+
+      entries.forEach(([id, s]) => { known[id] = s; });
+      setTxStatuses({ ...known });
+
+      if (Object.values(known).some(s => s?.status !== 'Completed' && s?.status !== 'Failed'))
+        setTimeout(poll, 5000);
     };
 
-    fetchAll();
+    poll();
     return () => { cancelled = true; };
   }, [mediaItems]);
 
