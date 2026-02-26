@@ -75,6 +75,14 @@ public class CatalogController : BaseController
     public async Task<IActionResult> DeleteTvShow(Guid id)
         => await SendRequest(new DeleteTvShowCommand { TvShowId = id });
 
+    [HttpPut("tv-show/{id}")]
+    [ProducesResponseType(200, Type = typeof(ResponseMessage<TvShowDto>))]
+    public async Task<IActionResult> UpdateTvShow(Guid id, [FromBody] UpdateTvShowCommand command)
+    {
+        command.TvShowId = id;
+        return await SendRequest(command);
+    }
+
     [HttpPut("tv-show/{id}/episodes/reorder")]
     [ProducesResponseType(200, Type = typeof(ResponseMessage<TvShowDto>))]
     public async Task<IActionResult> ReorderTvShowEpisodes(Guid id, [FromBody] ReorderTvShowEpisodesCommand command)

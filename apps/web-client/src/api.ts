@@ -122,6 +122,15 @@ export const api = {
     const data: BaseResponse<boolean> = await res.json();
     return data.isSuccess;
   },
+  updateTvShow: async (id: string, title: string, description: string | null, posterPath: string | null, episodeIds: string[] | null): Promise<TvShowDto | null> => {
+    const res = await fetch(`${BASE_URL}/Catalog/tv-show/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description, posterPath, episodeIds }),
+    });
+    const data: BaseResponse<TvShowDto> = await res.json();
+    return data.isSuccess ? data.result : null;
+  },
   reorderTvShowEpisodes: async (tvShowId: string, episodeIds: string[]): Promise<TvShowDto | null> => {
     const res = await fetch(`${BASE_URL}/Catalog/tv-show/${tvShowId}/episodes/reorder`, {
       method: 'PUT',

@@ -44,4 +44,12 @@ public class MediaItem
         SeasonNumber = season;
         EpisodeNumber = episode;
     }
+
+    public void UnlinkFromShow()
+    {
+        TvShowId = null;
+        TvShow = null;
+        SeasonNumber = null;
+        EpisodeNumber = null;
+    }
 }

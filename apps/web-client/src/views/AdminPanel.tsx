@@ -107,7 +107,7 @@ export const AdminPanel = () => {
       {activeTab === 'library' && <LibraryTab mediaItems={mediaItems} />}
       {activeTab === 'add-movie' && <AddMovieTab mediaItems={mediaItems} />}
       {activeTab === 'add-tv-show' && <AddTvShowTab mediaItems={mediaItems} />}
-      {activeTab === 'manage' && <ManageTab />}
+      {activeTab === 'manage' && <ManageTab mediaItems={mediaItems} />}
     </div>
   );
 };
@@ -572,18 +572,21 @@ const AddTvShowTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
 };
 
 // ── Manage tab ────────────────────────────────────────────────────────────────
-const ManageTab = () => {
+const ManageTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
   const [catalog, setCatalog] = useState<CatalogItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  // Episode reorder state
-  const [expandedShowId, setExpandedShowId] = useState<string | null>(null);
-  const [episodeOrder, setEpisodeOrder] = useState<MediaItemDto[]>([]);
-  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
-  const [reorderSaving, setReorderSaving] = useState(false);
-  const [reorderFeedback, setReorderFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Edit show state
+  const [editingShowId, setEditingShowId] = useState<string | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editPosterPath, setEditPosterPath] = useState('');
+  const [editEpisodes, setEditEpisodes] = useState<MediaItemDto[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editFeedback, setEditFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
   useEffect(() => {
     api.getCatalog().then(data => { setCatalog(data); setLoading(false); });
@@ -598,26 +601,25 @@ const ManageTab = () => {
     setConfirmId(null);
     if (ok) {
       setCatalog(prev => prev.filter(c => c.id !== item.id));
-      if (expandedShowId === item.id) setExpandedShowId(null);
+      if (editingShowId === item.id) setEditingShowId(null);
     }
   };
 
-  const toggleEpisodePanel = async (showId: string) => {
-    if (expandedShowId === showId) {
-      setExpandedShowId(null);
-      setReorderFeedback(null);
-      return;
-    }
-    setExpandedShowId(showId);
-    setReorderFeedback(null);
-    setLoadingEpisodes(true);
+  const openEditPanel = async (showId: string) => {
+    if (editingShowId === showId) { setEditingShowId(null); setEditFeedback(null); return; }
+    setEditingShowId(showId);
+    setEditFeedback(null);
+    setLoadingEdit(true);
     const show = await api.getTvShow(showId);
-    setLoadingEpisodes(false);
-    setEpisodeOrder(show?.episodes ?? []);
+    setLoadingEdit(false);
+    setEditTitle(show?.title ?? '');
+    setEditDescription(show?.description ?? '');
+    setEditPosterPath(show?.posterPath ?? '');
+    setEditEpisodes(show?.episodes ?? []);
   };
 
-  const moveEpisodeInOrder = (idx: number, dir: -1 | 1) => {
-    setEpisodeOrder(prev => {
+  const moveEditEpisode = (idx: number, dir: -1 | 1) => {
+    setEditEpisodes(prev => {
       const next = [...prev];
       const swapIdx = idx + dir;
       if (swapIdx < 0 || swapIdx >= next.length) return prev;
@@ -626,16 +628,29 @@ const ManageTab = () => {
     });
   };
 
-  const handleSaveOrder = async (showId: string) => {
-    setReorderSaving(true);
-    setReorderFeedback(null);
-    const result = await api.reorderTvShowEpisodes(showId, episodeOrder.map(e => e.id));
-    setReorderSaving(false);
+  const removeEditEpisode = (id: string) => setEditEpisodes(prev => prev.filter(ep => ep.id !== id));
+  const addEditEpisode = (item: MediaItemDto) => setEditEpisodes(prev => [...prev, item]);
+
+  const handleEditSave = async (showId: string) => {
+    if (!editTitle.trim()) { setEditFeedback({ ok: false, msg: 'Title is required.' }); return; }
+    setEditSaving(true);
+    setEditFeedback(null);
+    const result = await api.updateTvShow(
+      showId,
+      editTitle.trim(),
+      editDescription.trim() || null,
+      editPosterPath.trim() || null,
+      editEpisodes.map(ep => ep.id),
+    );
+    setEditSaving(false);
     if (result) {
-      setEpisodeOrder(result.episodes ?? []);
-      setReorderFeedback({ ok: true, msg: 'Episode order saved.' });
+      setCatalog(prev => prev.map(c => c.id === showId
+        ? { ...c, title: result.title ?? c.title, posterPath: result.posterPath ?? c.posterPath }
+        : c));
+      setEditEpisodes(result.episodes ?? []);
+      setEditFeedback({ ok: true, msg: 'TV show updated.' });
     } else {
-      setReorderFeedback({ ok: false, msg: 'Failed to save order.' });
+      setEditFeedback({ ok: false, msg: 'Failed to save changes.' });
     }
   };
 
@@ -658,7 +673,7 @@ const ManageTab = () => {
           {items.map(item => {
             const isConfirming = confirmId === item.id;
             const isDeleting = deleting === item.id;
-            const isExpanded = expandedShowId === item.id;
+            const isExpanded = editingShowId === item.id;
             return (
               <div key={item.id}>
                 <div
@@ -692,13 +707,12 @@ const ManageTab = () => {
 
                   {/* Actions */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    {/* Edit Episodes button — TV shows only */}
                     {item.type === 'Show' && !isConfirming && (
                       <button
-                        onClick={() => toggleEpisodePanel(item.id)}
+                        onClick={() => openEditPanel(item.id)}
                         style={{ background: isExpanded ? '#2a2a2a' : 'none', color: isExpanded ? '#fff' : '#888', border: '1px solid #333', padding: '6px 12px', borderRadius: 5, cursor: 'pointer', fontSize: '0.78rem', transition: 'color 0.15s' }}
                       >
-                        {isExpanded ? 'Close' : 'Edit Episodes'}
+                        {isExpanded ? 'Close' : 'Edit Show'}
                       </button>
                     )}
                     {isConfirming ? (
@@ -731,57 +745,156 @@ const ManageTab = () => {
                   </div>
                 </div>
 
-                {/* Episode reorder panel */}
+                {/* Edit show panel */}
                 {isExpanded && (
-                  <div style={{ background: '#141414', border: '1px solid #444', borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '16px' }}>
-                    {loadingEpisodes ? (
-                      <p style={{ color: '#555', margin: 0, fontSize: '0.9rem' }}>Loading episodes…</p>
-                    ) : episodeOrder.length === 0 ? (
-                      <p style={{ color: '#555', margin: 0, fontSize: '0.9rem' }}>No episodes found.</p>
+                  <div style={{ background: '#141414', border: '1px solid #444', borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '20px' }}>
+                    {loadingEdit ? (
+                      <p style={{ color: '#555', margin: 0, fontSize: '0.9rem' }}>Loading…</p>
                     ) : (
-                      <>
-                        <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#666' }}>
-                          Drag or use ↑↓ to reorder. Click Save to apply.
-                        </p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 }}>
-                          {episodeOrder.map((ep, idx) => (
-                            <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1e1e', borderRadius: 6, padding: '8px 12px', border: '1px solid #2a2a2a' }}>
-                              <span style={{ background: '#e50914', color: '#fff', fontSize: '0.68rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, flexShrink: 0, minWidth: 28, textAlign: 'center' }}>
-                                E{idx + 1}
-                              </span>
-                              <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem', color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {ep.title ?? ep.id}
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                                <button
-                                  onClick={() => moveEpisodeInOrder(idx, -1)}
-                                  disabled={idx === 0}
-                                  title="Move up"
-                                  style={{ background: 'none', border: '1px solid #333', color: idx === 0 ? '#333' : '#888', borderRadius: 3, width: 22, height: 20, cursor: idx === 0 ? 'default' : 'pointer', fontSize: '0.65rem', padding: 0 }}
-                                >▲</button>
-                                <button
-                                  onClick={() => moveEpisodeInOrder(idx, 1)}
-                                  disabled={idx === episodeOrder.length - 1}
-                                  title="Move down"
-                                  style={{ background: 'none', border: '1px solid #333', color: idx === episodeOrder.length - 1 ? '#333' : '#888', borderRadius: 3, width: 22, height: 20, cursor: idx === episodeOrder.length - 1 ? 'default' : 'pointer', fontSize: '0.65rem', padding: 0 }}
-                                >▼</button>
-                              </div>
-                            </div>
-                          ))}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+                        {/* A. Metadata */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                          <h4 style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Metadata</h4>
+                          <div style={fieldWrap}>
+                            <label style={labelStyle}>Title *</label>
+                            <input
+                              type="text"
+                              value={editTitle}
+                              onChange={e => setEditTitle(e.target.value)}
+                              style={inputStyle}
+                            />
+                          </div>
+                          <div style={fieldWrap}>
+                            <label style={labelStyle}>Description</label>
+                            <textarea
+                              value={editDescription}
+                              onChange={e => setEditDescription(e.target.value)}
+                              rows={3}
+                              style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
+                            />
+                          </div>
+                          <div style={fieldWrap}>
+                            <label style={labelStyle}>Poster URL</label>
+                            <input
+                              type="text"
+                              placeholder="https://…"
+                              value={editPosterPath}
+                              onChange={e => setEditPosterPath(e.target.value)}
+                              style={inputStyle}
+                            />
+                            {editPosterPath && (
+                              <img
+                                src={editPosterPath}
+                                alt="poster preview"
+                                style={{ width: 80, borderRadius: 6, marginTop: 6, border: '1px solid #333', objectFit: 'cover' }}
+                                onError={e => (e.currentTarget.style.display = 'none')}
+                              />
+                            )}
+                          </div>
                         </div>
-                        {reorderFeedback && (
-                          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 10, background: reorderFeedback.ok ? 'rgba(34,197,94,0.1)' : 'rgba(229,9,20,0.1)', border: `1px solid ${reorderFeedback.ok ? '#22c55e' : '#e50914'}`, color: reorderFeedback.ok ? '#4ade80' : '#f87171', fontSize: '0.82rem' }}>
-                            {reorderFeedback.msg}
+
+                        {/* B. Current episode list */}
+                        <div>
+                          <h4 style={{ margin: '0 0 10px', fontSize: '0.75rem', fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                            Episodes ({editEpisodes.length})
+                          </h4>
+                          {editEpisodes.length === 0 ? (
+                            <p style={{ color: '#555', fontSize: '0.85rem', margin: 0 }}>No episodes. Add some below.</p>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {editEpisodes.map((ep, idx) => (
+                                <div key={ep.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1e1e', borderRadius: 6, padding: '8px 12px', border: '1px solid #2a2a2a' }}>
+                                  <span style={{ background: '#e50914', color: '#fff', fontSize: '0.68rem', fontWeight: 700, padding: '2px 6px', borderRadius: 4, flexShrink: 0, minWidth: 28, textAlign: 'center' }}>
+                                    E{idx + 1}
+                                  </span>
+                                  <div style={{ flex: 1, minWidth: 0, fontSize: '0.9rem', color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {ep.title ?? ep.id}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      <button
+                                        onClick={() => moveEditEpisode(idx, -1)}
+                                        disabled={idx === 0}
+                                        title="Move up"
+                                        style={{ background: 'none', border: '1px solid #333', color: idx === 0 ? '#333' : '#888', borderRadius: 3, width: 22, height: 20, cursor: idx === 0 ? 'default' : 'pointer', fontSize: '0.65rem', padding: 0 }}
+                                      >▲</button>
+                                      <button
+                                        onClick={() => moveEditEpisode(idx, 1)}
+                                        disabled={idx === editEpisodes.length - 1}
+                                        title="Move down"
+                                        style={{ background: 'none', border: '1px solid #333', color: idx === editEpisodes.length - 1 ? '#333' : '#888', borderRadius: 3, width: 22, height: 20, cursor: idx === editEpisodes.length - 1 ? 'default' : 'pointer', fontSize: '0.65rem', padding: 0 }}
+                                      >▼</button>
+                                    </div>
+                                    <button
+                                      onClick={() => removeEditEpisode(ep.id)}
+                                      title="Remove"
+                                      style={{ background: 'none', border: '1px solid #333', color: '#888', borderRadius: 3, width: 22, height: 42, cursor: 'pointer', fontSize: '0.75rem', padding: 0, lineHeight: 1 }}
+                                      onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.borderColor = '#f87171'; }}
+                                      onMouseLeave={e => { e.currentTarget.style.color = '#888'; e.currentTarget.style.borderColor = '#333'; }}
+                                    >×</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* C. Add episodes */}
+                        {(() => {
+                          const availableToAdd = mediaItems.filter(m => !editEpisodes.some(ep => ep.id === m.id));
+                          return (
+                            <div>
+                              <h4 style={{ margin: '0 0 10px', fontSize: '0.75rem', fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                Add Episodes
+                              </h4>
+                              {availableToAdd.length === 0 ? (
+                                <p style={{ color: '#555', fontSize: '0.85rem', margin: 0 }}>All media items are already in this show.</p>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto', border: '1px solid #2a2a2a', borderRadius: 6 }}>
+                                  {availableToAdd.map((m, i) => (
+                                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: i % 2 === 0 ? '#1a1a1a' : '#1e1e1e', borderBottom: '1px solid #2a2a2a' }}>
+                                      <div style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {m.title ?? m.id}
+                                      </div>
+                                      <button
+                                        onClick={() => addEditEpisode(m)}
+                                        style={{ background: 'none', border: '1px solid #444', color: '#aaa', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: '0.78rem', flexShrink: 0 }}
+                                        onMouseEnter={e => { e.currentTarget.style.color = '#4ade80'; e.currentTarget.style.borderColor = '#4ade80'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.color = '#aaa'; e.currentTarget.style.borderColor = '#444'; }}
+                                      >
+                                        Add +
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* D. Footer */}
+                        {editFeedback && (
+                          <div style={{ padding: '8px 12px', borderRadius: 6, background: editFeedback.ok ? 'rgba(34,197,94,0.1)' : 'rgba(229,9,20,0.1)', border: `1px solid ${editFeedback.ok ? '#22c55e' : '#e50914'}`, color: editFeedback.ok ? '#4ade80' : '#f87171', fontSize: '0.82rem' }}>
+                            {editFeedback.msg}
                           </div>
                         )}
-                        <button
-                          onClick={() => handleSaveOrder(item.id)}
-                          disabled={reorderSaving}
-                          style={{ background: reorderSaving ? '#444' : '#e50914', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 6, cursor: reorderSaving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.85rem' }}
-                        >
-                          {reorderSaving ? 'Saving…' : 'Save Order'}
-                        </button>
-                      </>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button
+                            onClick={() => handleEditSave(item.id)}
+                            disabled={editSaving}
+                            style={{ background: editSaving ? '#444' : '#e50914', color: '#fff', border: 'none', padding: '9px 22px', borderRadius: 6, cursor: editSaving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.88rem' }}
+                          >
+                            {editSaving ? 'Saving…' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={() => { setEditingShowId(null); setEditFeedback(null); }}
+                            style={{ background: 'none', color: '#666', border: '1px solid #333', padding: '9px 18px', borderRadius: 6, cursor: 'pointer', fontSize: '0.88rem' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
