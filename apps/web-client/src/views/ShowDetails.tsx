@@ -14,7 +14,9 @@ export const ShowDetails = () => {
     count: episodes.length,
     columns: 1,
     onSelect: (i) => {
-      if (episodes[i]) navigate(`/play/${episodes[i].id}`, { state: { title: `${show?.title ?? ''} — E${i + 1}` } });
+      if (episodes[i]) navigate(`/play/${episodes[i].id}`, {
+        state: { title: `${show?.title ?? ''} — E${i + 1}`, episodes, currentEpisodeIndex: i, showTitle: show?.title ?? '' },
+      });
     },
     onBack: () => navigate(-1),
   });
@@ -40,7 +42,7 @@ export const ShowDetails = () => {
             <div
               key={ep.id}
               id={`nav-item-${index}`}
-              onClick={() => navigate(`/play/${ep.id}`, { state: { title: `${show.title ?? ''} — E${index + 1}` } })}
+              onClick={() => navigate(`/play/${ep.id}`, { state: { title: `${show.title ?? ''} — E${index + 1}`, episodes, currentEpisodeIndex: index, showTitle: show.title ?? '' } })}
               style={{
                 display: 'flex',
                 alignItems: 'center',

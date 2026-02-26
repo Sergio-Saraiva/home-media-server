@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import shaka from 'shaka-player/dist/shaka-player.ui';
-import { api, BASE_URL, type SubtitleDto, type TranscodeStatus } from '../api';
+import { api, BASE_URL, type SubtitleDto, type TranscodeStatus, type MediaItemDto } from '../api';
 
-type ControlMode = 'playback' | 'controls' | 'subtitle-menu';
+type ControlMode = 'playback' | 'controls' | 'subtitle-menu' | 'episode-list';
 
-// Control bar button indices
+// Control bar button indices — first 4 are always present
 const CTRL_BACK = 0;
 const CTRL_SEEK_BACK = 1;
 const CTRL_PLAY = 2;
 const CTRL_SEEK_FWD = 3;
-const CTRL_CC = 4;
-const CTRL_MUTE = 5;
-const CTRL_FULLSCREEN = 6;
-const CTRL_COUNT = 7;
+// TV-show-only buttons (positions 4, 5, 6 when hasTvContext)
+const CTRL_PREV_EP = 4;
+const CTRL_NEXT_EP = 5;
+const CTRL_EPISODES = 6;
+// Right-side buttons — indices depend on hasTvContext (computed inside component)
 
 const formatTime = (seconds: number): string => {
   if (!isFinite(seconds) || isNaN(seconds)) return '0:00';
@@ -28,7 +29,26 @@ export const Player = () => {
   const { mediaId } = useParams<{ mediaId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { title } = (location.state ?? {}) as { title?: string };
+  const { title, episodes: stateEpisodes, currentEpisodeIndex: stateEpIdx, showTitle } =
+    (location.state ?? {}) as {
+      title?: string;
+      episodes?: MediaItemDto[];
+      currentEpisodeIndex?: number;
+      showTitle?: string;
+    };
+  const episodes = stateEpisodes ?? [];
+  const hasTvContext = episodes.length > 0;
+  const [currentEpIdx, setCurrentEpIdx] = useState(stateEpIdx ?? -1);
+  const currentEpisodeIndex = currentEpIdx;
+  const displayTitle = hasTvContext
+    ? `${showTitle ?? ''} — E${currentEpisodeIndex + 1}`
+    : (title ?? '');
+
+  // Dynamic button indices — shift right-side buttons when TV context is present
+  const CTRL_CC         = hasTvContext ? 7 : 4;
+  const CTRL_MUTE       = hasTvContext ? 8 : 5;
+  const CTRL_FULLSCREEN = hasTvContext ? 9 : 6;
+  const CTRL_COUNT      = hasTvContext ? 10 : 7;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<shaka.Player | null>(null);
@@ -50,6 +70,8 @@ export const Player = () => {
   const [controlFocusIndex, setControlFocusIndex] = useState(CTRL_PLAY);
   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
   const [subtitleFocusIndex, setSubtitleFocusIndex] = useState(0); // 0=Off, 1..n=tracks
+  const [episodeListOpen, setEpisodeListOpen] = useState(false);
+  const [episodeFocusIndex, setEpisodeFocusIndex] = useState(Math.max(0, currentEpisodeIndex));
 
   // Subtitle data
   const [subtitles, setSubtitles] = useState<SubtitleDto[]>([]);
@@ -187,12 +209,38 @@ export const Player = () => {
     else document.exitFullscreen();
   }, []);
 
+  const navigateToEpisode = useCallback(async (idx: number) => {
+    if (idx < 0 || idx >= episodes.length) return;
+    const player = playerRef.current;
+    if (!player) return;
+    const ep = episodes[idx];
+    setCurrentEpIdx(idx);
+    setActiveSubtitleId(null);
+    setSubtitlesLoading(true);
+    try {
+      await player.load(`${BASE_URL}/Streaming/hls/master/${ep.id}.m3u8`);
+    } catch (err) {
+      console.error('Episode load error:', err);
+    }
+    api.getSubtitles(ep.id).then(subs => {
+      setSubtitles(subs);
+      setSubtitlesLoading(false);
+    });
+  }, [episodes]);
+
   const activateControl = useCallback((index: number) => {
     switch (index) {
       case CTRL_BACK:       navigate(-1); break;
       case CTRL_SEEK_BACK:  seekBy(-10); break;
       case CTRL_PLAY:       togglePlayPause(); break;
       case CTRL_SEEK_FWD:   seekBy(10); break;
+      case CTRL_PREV_EP:    navigateToEpisode(currentEpisodeIndex - 1); break;
+      case CTRL_NEXT_EP:    navigateToEpisode(currentEpisodeIndex + 1); break;
+      case CTRL_EPISODES:
+        setEpisodeListOpen(true);
+        setControlMode('episode-list');
+        setEpisodeFocusIndex(Math.max(0, currentEpisodeIndex));
+        break;
       case CTRL_CC:
         setSubtitleMenuOpen(true);
         setControlMode('subtitle-menu');
@@ -201,7 +249,7 @@ export const Player = () => {
       case CTRL_MUTE:       toggleMute(); break;
       case CTRL_FULLSCREEN: toggleFullscreen(); break;
     }
-  }, [navigate, seekBy, togglePlayPause, toggleMute, toggleFullscreen]);
+  }, [navigate, seekBy, togglePlayPause, toggleMute, toggleFullscreen, navigateToEpisode, currentEpisodeIndex]);
 
   const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
     const player = playerRef.current;
@@ -329,13 +377,38 @@ export const Player = () => {
           return currentMode;
         }
 
+        // ---- EPISODE-LIST MODE ----
+        if (currentMode === 'episode-list') {
+          if (e.keyCode === 10009) { navigate(-1); return currentMode; }
+          if (isBack || key === 'ArrowLeft') {
+            e.preventDefault();
+            setEpisodeListOpen(false);
+            return 'controls';
+          }
+          switch (key) {
+            case 'ArrowUp':
+              e.preventDefault();
+              setEpisodeFocusIndex(prev => Math.max(0, prev - 1));
+              break;
+            case 'ArrowDown':
+              e.preventDefault();
+              setEpisodeFocusIndex(prev => Math.min(episodes.length - 1, prev + 1));
+              break;
+            case 'Enter':
+              e.preventDefault();
+              setEpisodeFocusIndex(prev => { navigateToEpisode(prev); return prev; });
+              break;
+          }
+          return currentMode;
+        }
+
         return currentMode;
       });
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, togglePlayPause, seekBy, activateControl, handleSubtitleSelect, subtitles, showControls, showControlsPersist]);
+  }, [navigate, togglePlayPause, seekBy, activateControl, handleSubtitleSelect, subtitles, showControls, showControlsPersist, navigateToEpisode, episodes]);
 
   // Initial show
   useEffect(() => {
@@ -420,7 +493,7 @@ export const Player = () => {
       >
         {/* Title row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-          {title && <span style={{ fontSize: '1rem', fontWeight: 600, color: 'rgba(255,255,255,0.85)', letterSpacing: '0.02em' }}>{title}</span>}
+          {displayTitle && <span style={{ fontSize: '1rem', fontWeight: 600, color: 'rgba(255,255,255,0.85)', letterSpacing: '0.02em' }}>{displayTitle}</span>}
           <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.6)', marginLeft: 'auto' }}>
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
@@ -444,6 +517,25 @@ export const Player = () => {
           <button style={btnStyle(CTRL_SEEK_BACK)} onClick={() => seekBy(-10)}>↺ 10</button>
           <button style={btnStyle(CTRL_PLAY)} onClick={togglePlayPause}>{isPlaying ? '⏸' : '▶'}</button>
           <button style={btnStyle(CTRL_SEEK_FWD)} onClick={() => seekBy(10)}>10 ↻</button>
+
+          {hasTvContext && (
+            <>
+              <button
+                style={{ ...btnStyle(CTRL_PREV_EP), opacity: currentEpisodeIndex <= 0 ? 0.35 : 1 }}
+                onClick={() => navigateToEpisode(currentEpisodeIndex - 1)}
+                disabled={currentEpisodeIndex <= 0}
+              >⏮</button>
+              <button
+                style={{ ...btnStyle(CTRL_NEXT_EP), opacity: currentEpisodeIndex >= episodes.length - 1 ? 0.35 : 1 }}
+                onClick={() => navigateToEpisode(currentEpisodeIndex + 1)}
+                disabled={currentEpisodeIndex >= episodes.length - 1}
+              >⏭</button>
+              <button
+                style={btnStyle(CTRL_EPISODES)}
+                onClick={() => { setEpisodeListOpen(o => !o); setControlMode('episode-list'); setEpisodeFocusIndex(Math.max(0, currentEpisodeIndex)); }}
+              >≡ Eps</button>
+            </>
+          )}
 
           <div style={{ flex: 1 }} />
 
@@ -543,6 +635,80 @@ export const Player = () => {
                 );
               })
             )}
+          </div>
+
+          {/* Footer hint */}
+          <div style={{ padding: '8px 18px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>↑/↓ navigate · Enter select · ← close</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── EPISODE LIST PANEL ── */}
+      {episodeListOpen && controlsVisible && hasTvContext && (
+        <div
+          className="subtitle-panel"
+          style={{
+            position: 'absolute',
+            bottom: 148,
+            left: '50%',
+            width: 360,
+            background: 'rgba(16,16,16,0.88)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 12px 48px rgba(0,0,0,0.75)',
+            zIndex: 20,
+            overflow: 'hidden',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+              Episodes
+            </span>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)' }}>{episodes.length} total</span>
+          </div>
+
+          {/* Episode list */}
+          <div style={{ padding: '6px 0 8px', maxHeight: 300, overflowY: 'auto' }}>
+            {episodes.map((ep, i) => {
+              const isFocused = episodeFocusIndex === i;
+              const isCurrent = i === currentEpisodeIndex;
+              return (
+                <div key={ep.id} style={{ padding: '2px 8px' }}>
+                  <button
+                    onClick={() => navigateToEpisode(i)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      width: '100%', textAlign: 'left',
+                      padding: '10px 12px',
+                      background: isFocused ? 'rgba(255,255,255,0.93)' : 'transparent',
+                      color: isFocused ? '#111' : isCurrent ? '#e50914' : 'rgba(255,255,255,0.82)',
+                      border: 'none', cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: isCurrent || isFocused ? 600 : 400,
+                      transition: 'background 0.12s',
+                      borderRadius: 9,
+                    }}
+                  >
+                    <span style={{ fontSize: '0.68rem', background: isFocused ? 'rgba(0,0,0,0.2)' : '#333', color: isFocused ? '#111' : '#aaa', padding: '2px 6px', borderRadius: 4, flexShrink: 0, minWidth: 24, textAlign: 'center', fontWeight: 700 }}>
+                      E{i + 1}
+                    </span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ep.title ?? `Episode ${i + 1}`}
+                    </span>
+                    {isCurrent && !isFocused && (
+                      <span style={{ fontSize: '0.62rem', background: 'rgba(229,9,20,0.15)', color: '#e50914', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
+                        NOW
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           {/* Footer hint */}
