@@ -16,18 +16,18 @@ public abstract class BaseController : ControllerBase
         _mediator = mediator;
     }
     
-    protected async Task<IActionResult> SendRequest<T>(IRequest<Result<T>> request)
+    protected async Task<IActionResult> SendRequest<TResponse>(IRequest<Result<TResponse>> request)
     {
         var result = await _mediator.Send(request);
 
-        var response = new ResponseMessage<T>
+        var response = new ResponseMessage<TResponse>
         {
             IsSuccess = result.IsSuccess
         };
 
         if (result.IsSuccess)
         {
-            return StatusCode(StatusCodes.Status200OK, new ResponseMessage<T>
+            return StatusCode(StatusCodes.Status200OK, new ResponseMessage<TResponse>
             {
                 Result = result.Value,
                 ErrorMessage = null,
@@ -37,14 +37,14 @@ public abstract class BaseController : ControllerBase
         
         if (result.Exception is ApiErrorException apiErrorException)
         {
-            return StatusCode((int)apiErrorException.StatusCode, new ResponseMessage<T>
+            return StatusCode((int)apiErrorException.StatusCode, new ResponseMessage<TResponse>
             {
                 IsSuccess = false,
                 ErrorMessage = apiErrorException.Message
             });
         }
 
-        return StatusCode(StatusCodes.Status500InternalServerError, new ResponseMessage<T>
+        return StatusCode(StatusCodes.Status500InternalServerError, new ResponseMessage<TResponse>
         {
             IsSuccess = false,
             ErrorMessage = "Internal Server Error"

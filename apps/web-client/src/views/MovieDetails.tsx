@@ -1,16 +1,33 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api, type MovieDto } from '../api';
+import { api, type MovieDto, type TranscodeStatus } from '../api';
 import { useKeyNav } from '../hooks/useKeyNav';
+import { TranscodeBadge } from '../components/TranscodeBadge';
 
 export const MovieDetails = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [movie, setMovie] = useState<MovieDto | null>(null);
+  const [txStatus, setTxStatus] = useState<TranscodeStatus | null | undefined>(undefined);
 
   useEffect(() => {
     if (id) api.getMovie(id).then(setMovie);
   }, [id]);
+
+  useEffect(() => {
+    if (!movie) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      const s = await api.getTranscodeStatus(movie.mediaItem.id);
+      if (cancelled) return;
+      setTxStatus(s);
+      if (s?.status === 'Processing') setTimeout(poll, 4000);
+    };
+
+    poll();
+    return () => { cancelled = true; };
+  }, [movie?.mediaItem.id]);
 
   // 0 = Back, 1 = Play — default focus on Play
   const activeIndex = useKeyNav({
@@ -47,9 +64,12 @@ export const MovieDetails = () => {
         </div>
         <div style={{ flex: 1 }}>
           <h1 style={{ fontSize: '3rem', margin: '0 0 20px 0' }}>{movie.title}</h1>
-          <p style={{ fontSize: '1.2rem', color: '#ccc', lineHeight: '1.6', marginBottom: '40px' }}>
+          <p style={{ fontSize: '1.2rem', color: '#ccc', lineHeight: '1.6', marginBottom: '20px' }}>
             {movie.description || 'No description available.'}
           </p>
+          <div style={{ marginBottom: '28px' }}>
+            <TranscodeBadge status={txStatus} />
+          </div>
           <button
             id="nav-item-1"
             onClick={() => navigate(`/play/${movie.mediaItem.id}`, { state: { title: movie.title ?? undefined } })}

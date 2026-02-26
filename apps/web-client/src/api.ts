@@ -79,7 +79,7 @@ export const api = {
     return data.isSuccess ? data.result : [];
   },
   getTranscodeStatus: async (mediaId: string): Promise<TranscodeStatus | null> => {
-    const res = await fetch(`${BASE_URL}/Streaming/hls/${mediaId}/progress`);
+    const res = await fetch(`${BASE_URL}/Catalog/${mediaId}/progress`);
     const data: BaseResponse<TranscodeStatus> = await res.json();
     return data.isSuccess ? data.result : null;
   },

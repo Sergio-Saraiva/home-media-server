@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api, type TvShowDto } from '../api';
+import { api, type TvShowDto, type TranscodeStatus } from '../api';
 import { useKeyNav } from '../hooks/useKeyNav';
+import { TranscodeBadge } from '../components/TranscodeBadge';
 
 export const ShowDetails = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [show, setShow] = useState<TvShowDto | null>(null);
+  const [epStatuses, setEpStatuses] = useState<Record<string, TranscodeStatus | null | undefined>>({});
 
   const episodes = show?.episodes ?? [];
 
@@ -24,6 +26,25 @@ export const ShowDetails = () => {
   useEffect(() => {
     if (id) api.getTvShow(id).then(setShow);
   }, [id]);
+
+  useEffect(() => {
+    if (episodes.length === 0) return;
+    let cancelled = false;
+
+    const fetchAll = async () => {
+      const entries = await Promise.all(
+        episodes.map(ep => api.getTranscodeStatus(ep.id).then(s => [ep.id, s] as const))
+      );
+      if (cancelled) return;
+      const map = Object.fromEntries(entries);
+      setEpStatuses(map);
+      if (Object.values(map).some(s => s?.status === 'Processing'))
+        setTimeout(fetchAll, 5000);
+    };
+
+    fetchAll();
+    return () => { cancelled = true; };
+  }, [show?.id]);
 
   if (!show) return <div style={{ padding: '40px' }}>Loading...</div>;
 
@@ -60,6 +81,7 @@ export const ShowDetails = () => {
               <span style={{ fontSize: '1.5rem', color: '#777', width: '50px' }}>{index + 1}</span>
               <span style={{ flex: 1, fontSize: '1.2rem', fontWeight: 500 }}>{ep.title || `Episode ${index + 1}`}</span>
               <span style={{ color: isFocused ? '#e50914' : '#aaa' }}>▶ Play</span>
+              <TranscodeBadge status={epStatuses[ep.id]} />
             </div>
           );
         })}

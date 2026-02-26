@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type CatalogItemDTO, type MediaItemDto, type SubtitleDto } from '../api';
+import { api, type CatalogItemDTO, type MediaItemDto, type SubtitleDto, type TranscodeStatus } from '../api';
+import { TranscodeBadge } from '../components/TranscodeBadge';
 
 // ── Library tab types ────────────────────────────────────────────────────────
 interface ItemState {
@@ -114,11 +115,31 @@ export const AdminPanel = () => {
 // ── Library tab ──────────────────────────────────────────────────────────────
 const LibraryTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>({});
+  const [txStatuses, setTxStatuses] = useState<Record<string, TranscodeStatus | null | undefined>>({});
 
   useEffect(() => {
     const states: Record<string, ItemState> = {};
     mediaItems.forEach(item => { states[item.id] = defaultItemState(); });
     setItemStates(states);
+  }, [mediaItems]);
+
+  useEffect(() => {
+    if (mediaItems.length === 0) return;
+    let cancelled = false;
+
+    const fetchAll = async () => {
+      const entries = await Promise.all(
+        mediaItems.map(item => api.getTranscodeStatus(item.id).then(s => [item.id, s] as const))
+      );
+      if (cancelled) return;
+      const map = Object.fromEntries(entries);
+      setTxStatuses(map);
+      if (Object.values(map).some(s => s?.status === 'Processing'))
+        setTimeout(fetchAll, 5000);
+    };
+
+    fetchAll();
+    return () => { cancelled = true; };
   }, [mediaItems]);
 
   const updateItem = (id: string, patch: Partial<ItemState>) => {
@@ -173,6 +194,7 @@ const LibraryTab = ({ mediaItems }: { mediaItems: MediaItemDto[] }) => {
                     Added {new Date(item.dateAdded).toLocaleDateString()}
                   </div>
                 </div>
+                <TranscodeBadge status={txStatuses[item.id]} />
               </div>
 
               {state.expanded && (

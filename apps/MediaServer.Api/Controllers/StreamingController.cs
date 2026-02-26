@@ -100,18 +100,4 @@ public class StreamingController : ControllerBase
 
         return PhysicalFile(filePath, contentType, enableRangeProcessing: true);
     }
-    
-    [HttpGet("hls/{mediaId}/progress")]
-    public async Task<IActionResult> GetProgress(Guid mediaId)
-    {
-        var query = new GetTranscodeProgressQuery { MediaId = mediaId };
-        var result = await _mediator.Send(query);
-        
-        if (!result.IsSuccess)
-        {
-            return StatusCode(500, result.Exception.Message);
-        }
-        
-        return Ok(result.Value);
-    }
 }

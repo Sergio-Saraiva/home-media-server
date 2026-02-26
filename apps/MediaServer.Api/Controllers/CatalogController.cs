@@ -5,6 +5,7 @@ using MediaServer.Application.Media.Commands;
 using MediaServer.Application.Media.Queries;
 using MediaServer.Application.Movies.Commands;
 using MediaServer.Application.Movies.Queries;
+using MediaServer.Application.Streaming.Queries;
 using MediaServer.Application.TvShows.Commands;
 using MediaServer.Application.TvShows.Queries;
 using MediatR;
@@ -87,6 +88,13 @@ public class CatalogController : BaseController
     public async Task<IActionResult> GetCatalog()
     {
         var query = new GetCatalogQuery();
+        return await SendRequest(query);
+    }
+    
+    [HttpGet("{mediaId}/progress")]
+    public async Task<IActionResult> GetProgress(Guid mediaId)
+    {
+        var query = new GetTranscodeProgressQuery { MediaId = mediaId };
         return await SendRequest(query);
     }
 }
