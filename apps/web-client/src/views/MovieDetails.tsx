@@ -29,6 +29,8 @@ export const MovieDetails = () => {
     return () => { cancelled = true; };
   }, [movie?.mediaItem.id]);
 
+  const canPlay = txStatus?.status === 'Completed';
+
   // 0 = Back, 1 = Play — default focus on Play
   const activeIndex = useKeyNav({
     count: 2,
@@ -36,7 +38,7 @@ export const MovieDetails = () => {
     initialIndex: 1,
     onSelect: (i) => {
       if (i === 0) navigate(-1);
-      else if (movie) navigate(`/play/${movie.mediaItem.id}`, { state: { title: movie.title ?? undefined } });
+      else if (movie && canPlay) navigate(`/play/${movie.mediaItem.id}`, { state: { title: movie.title ?? undefined } });
     },
     onBack: () => navigate(-1),
   });
@@ -67,15 +69,28 @@ export const MovieDetails = () => {
           <p style={{ fontSize: '1.2rem', color: '#ccc', lineHeight: '1.6', marginBottom: '20px' }}>
             {movie.description || 'No description available.'}
           </p>
-          <div style={{ marginBottom: '28px' }}>
-            <TranscodeBadge status={txStatus} />
-          </div>
+          {!canPlay && (
+            <div style={{ marginBottom: '28px' }}>
+              <TranscodeBadge status={txStatus} />
+            </div>
+          )}
           <button
             id="nav-item-1"
-            onClick={() => navigate(`/play/${movie.mediaItem.id}`, { state: { title: movie.title ?? undefined } })}
-            style={{ background: '#e50914', color: 'white', border: 'none', padding: '15px 40px', fontSize: '1.2rem', fontWeight: 'bold', borderRadius: '4px', cursor: 'pointer', ...focusStyle(1) }}
-            onMouseEnter={e => e.currentTarget.style.background = '#f40612'}
-            onMouseLeave={e => e.currentTarget.style.background = '#e50914'}
+            onClick={() => { if (canPlay && movie) navigate(`/play/${movie.mediaItem.id}`, { state: { title: movie.title ?? undefined } }); }}
+            disabled={!canPlay}
+            style={{
+              background: canPlay ? '#e50914' : '#444',
+              color: canPlay ? 'white' : '#888',
+              border: 'none',
+              padding: '15px 40px',
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              borderRadius: '4px',
+              cursor: canPlay ? 'pointer' : 'not-allowed',
+              ...focusStyle(1),
+            }}
+            onMouseEnter={e => { if (canPlay) e.currentTarget.style.background = '#f40612'; }}
+            onMouseLeave={e => { if (canPlay) e.currentTarget.style.background = '#e50914'; }}
           >
             ▶ PLAY MOVIE
           </button>

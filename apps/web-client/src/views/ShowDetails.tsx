@@ -16,9 +16,10 @@ export const ShowDetails = () => {
     count: episodes.length,
     columns: 1,
     onSelect: (i) => {
-      if (episodes[i]) navigate(`/play/${episodes[i].id}`, {
-        state: { title: `${show?.title ?? ''} — E${i + 1}`, episodes, currentEpisodeIndex: i, showTitle: show?.title ?? '' },
-      });
+      if (episodes[i] && epStatuses[episodes[i].id]?.status === 'Completed')
+        navigate(`/play/${episodes[i].id}`, {
+          state: { title: `${show?.title ?? ''} — E${i + 1}`, episodes, currentEpisodeIndex: i, showTitle: show?.title ?? '' },
+        });
     },
     onBack: () => navigate(-1),
   });
@@ -59,29 +60,35 @@ export const ShowDetails = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {episodes.map((ep, index) => {
           const isFocused = index === activeIndex;
+          const epReady = epStatuses[ep.id]?.status === 'Completed';
           return (
             <div
               key={ep.id}
               id={`nav-item-${index}`}
-              onClick={() => navigate(`/play/${ep.id}`, { state: { title: `${show.title ?? ''} — E${index + 1}`, episodes, currentEpisodeIndex: index, showTitle: show.title ?? '' } })}
+              onClick={() => {
+                if (epReady) navigate(`/play/${ep.id}`, { state: { title: `${show.title ?? ''} — E${index + 1}`, episodes, currentEpisodeIndex: index, showTitle: show.title ?? '' } });
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 padding: '20px',
                 background: isFocused ? '#333' : '#222',
                 borderRadius: '8px',
-                cursor: 'pointer',
+                cursor: epReady ? 'pointer' : 'default',
                 border: isFocused ? '2px solid #e50914' : '2px solid transparent',
                 transform: isFocused ? 'scale(1.02)' : 'scale(1)',
                 transition: 'all 0.15s ease-out',
+                opacity: epStatuses[ep.id] === undefined ? 1 : epReady ? 1 : 0.6,
               }}
-              onMouseEnter={e => e.currentTarget.style.background = '#333'}
-              onMouseLeave={e => { if (!isFocused) e.currentTarget.style.background = '#222'; }}
+              onMouseEnter={e => { if (epReady) e.currentTarget.style.background = '#333'; }}
+              onMouseLeave={e => { if (!isFocused && epReady) e.currentTarget.style.background = '#222'; }}
             >
               <span style={{ fontSize: '1.5rem', color: '#777', width: '50px' }}>{index + 1}</span>
               <span style={{ flex: 1, fontSize: '1.2rem', fontWeight: 500 }}>{ep.title || `Episode ${index + 1}`}</span>
-              <span style={{ color: isFocused ? '#e50914' : '#aaa' }}>▶ Play</span>
-              <TranscodeBadge status={epStatuses[ep.id]} />
+              {epReady
+                ? <span style={{ color: isFocused ? '#e50914' : '#aaa' }}>▶ Play</span>
+                : <TranscodeBadge status={epStatuses[ep.id]} />
+              }
             </div>
           );
         })}
