@@ -32,7 +32,8 @@ public class GetMediaSubtitlesQueryHandler : IRequestHandler<GetMediaSubtitlesQu
                 Id = x.Id,
                 Language = x.Language,
                 FilePath = x.FilePath,
-                Label = x.Label
+                Label = x.Label,
+                Format = x.Format
             }).ToList());
         }
         catch (Exception e)

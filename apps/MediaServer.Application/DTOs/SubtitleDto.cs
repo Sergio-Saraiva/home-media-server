@@ -6,4 +6,5 @@ public class SubtitleDto
     public string Language { get; set; }
     public string Label { get; set; }
     public string FilePath { get; set; }
+    public string Format { get; set; }
 }

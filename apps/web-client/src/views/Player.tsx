@@ -54,6 +54,7 @@ export const Player = () => {
   const playerRef = useRef<shaka.Player | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const octopusRef = useRef<any>(null);
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -99,6 +100,13 @@ export const Player = () => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     // Don't start auto-hide timer while user is navigating controls
   }, []);
+
+  const destroyOctopus = useCallback(() => {
+  if (octopusRef.current) {
+    octopusRef.current.dispose();
+    octopusRef.current = null;
+  }
+}, [])
 
   // --- Shaka Player init ---
   useEffect(() => {
@@ -213,6 +221,7 @@ export const Player = () => {
     if (idx < 0 || idx >= episodes.length) return;
     const player = playerRef.current;
     if (!player) return;
+    destroyOctopus();
     const ep = episodes[idx];
     setCurrentEpIdx(idx);
     setActiveSubtitleId(null);
@@ -251,28 +260,63 @@ export const Player = () => {
     }
   }, [navigate, seekBy, togglePlayPause, toggleMute, toggleFullscreen, navigateToEpisode, currentEpisodeIndex]);
 
-  const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
-    const player = playerRef.current;
-    if (!player) return;
+const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
+  const player = playerRef.current;
+  if (!player) return;
+  destroyOctopus();
 
-    if (!sub) {
-      player.setTextVisibility(false);
-      setActiveSubtitleId(null);
-    } else {
-      const trackUrl = `${BASE_URL}/Streaming/hls/${mediaId}/subtitles/${sub.id}`;
+  if (!sub) {
+    player.selectTextTrack(null);
+    setActiveSubtitleId(null);
+  } else {
+    const currentId = hasTvContext ? episodes[currentEpisodeIndex].id : mediaId;
+    const trackUrl = `${BASE_URL}/Streaming/hls/${currentId}/subtitles/${sub.id}`;
+    setActiveSubtitleId(sub.id);
+
+    if (sub.format === 'vtt') {
+      // VTT: use Shaka's built-in text track support
       try {
         const track = await player.addTextTrackAsync(trackUrl, sub.language, 'subtitle', 'text/vtt');
         player.selectTextTrack(track);
-        player.setTextVisibility(true);
-        setActiveSubtitleId(sub.id);
       } catch (err) {
-        console.error('Failed to load subtitle track', err);
+        console.error('Failed to load VTT subtitle track', err);
+      }
+    } else {
+      // ASS/SSA: use libass-wasm with blob URL worker
+      player.selectTextTrack(null);
+      setSubtitlesLoading(true);
+      try {
+        const serverOrigin = new URL(BASE_URL).origin;
+        const wasmBaseUrl = `${serverOrigin}/wasm`;
+
+        const response = await fetch(`${wasmBaseUrl}/subtitles-octopus-worker.js`);
+        let workerCode = await response.text();
+        // Prepend Module.locateFile so the emscripten worker resolves
+        // .wasm/.data paths to absolute backend URLs instead of relative paths
+        // (relative paths fail when the worker is loaded from a blob URL)
+        workerCode = `var Module = {"locateFile": function(path) { return "${wasmBaseUrl}/" + path; }};\n` + workerCode;
+        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+        const localWorkerUrl = URL.createObjectURL(workerBlob);
+
+        const SubtitlesOctopus = await import('@youka/libass-wasm');
+        if (!videoRef.current) return;
+        octopusRef.current = new SubtitlesOctopus.default({
+          video: videoRef.current,
+          subUrl: trackUrl,
+          workerUrl: localWorkerUrl,
+          fonts: [`${wasmBaseUrl}/default.woff2`],
+        });
+      } catch (err) {
+        console.error('Failed to load ASS subtitle track', err);
+      } finally {
+        setSubtitlesLoading(false);
       }
     }
-    setSubtitleMenuOpen(false);
-    setControlMode('controls');
-    showControlsPersist();
-  }, [mediaId, showControlsPersist]);
+  }
+  setSubtitleMenuOpen(false);
+  setControlMode('controls');
+  showControlsPersist();
+}, [mediaId, hasTvContext, episodes, currentEpisodeIndex, showControlsPersist, destroyOctopus]);
 
   // --- Keyboard handler (state machine) ---
   useEffect(() => {

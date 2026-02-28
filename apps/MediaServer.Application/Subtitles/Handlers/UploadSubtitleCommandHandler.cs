@@ -66,36 +66,48 @@ public class UploadSubtitleCommandHandler : IRequestHandler<UploadSubtitleComman
             var outputDir = Path.Combine(originalDirectory!, $".transcoded_{request.MediaId}");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
-            var safeFileName = $"{Guid.NewGuid()}_{request.Language}.vtt";
+            bool isAss = request.FileName.EndsWith(".ass", StringComparison.OrdinalIgnoreCase)
+                      || request.FileName.EndsWith(".ssa", StringComparison.OrdinalIgnoreCase);
+            string ext = isAss ? "ass" : "vtt";
+            string format = ext;
+
+            var safeFileName = $"{Guid.NewGuid()}_{request.Language}.{ext}";
             var filePath = Path.Combine(outputDir, safeFileName);
 
             using var memoryStream = new MemoryStream();
             await request.Content.CopyToAsync(memoryStream, cancellationToken);
             var fileBytes = memoryStream.ToArray();
 
-
-            string content = DecodeSubtitleBytes(fileBytes);
-
-            // Convert SRT to WebVTT: only replace commas in timestamp lines, not in dialogue
-            if (request.FileName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase))
+            if (isAss)
             {
-                content = "WEBVTT\n\n" + Regex.Replace(
-                    content,
-                    @"(\d{2}:\d{2}:\d{2}),(\d{3})",
-                    "$1.$2"
-                );
+                // Preserve ASS formatting exactly — write raw bytes
+                await File.WriteAllBytesAsync(filePath, fileBytes, cancellationToken);
             }
-            
-            await File.WriteAllTextAsync(filePath, content, Encoding.UTF8, cancellationToken);
+            else
+            {
+                string content = DecodeSubtitleBytes(fileBytes);
+
+                // Convert SRT to WebVTT: only replace commas in timestamp lines, not in dialogue
+                if (request.FileName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase))
+                {
+                    content = "WEBVTT\n\n" + Regex.Replace(
+                        content,
+                        @"(\d{2}:\d{2}:\d{2}),(\d{3})",
+                        "$1.$2"
+                    );
+                }
+
+                await File.WriteAllTextAsync(filePath, content, Encoding.UTF8, cancellationToken);
+            }
 
             var subtitle = new SubtitleTrack
             {
                 Id = Guid.CreateVersion7(),
-
                 MediaItemId = request.MediaId,
                 Language = request.Language,
                 Label = request.Language,
-                FilePath = filePath
+                FilePath = filePath,
+                Format = format
             };
             
             await _subtitleRepository.AddSubtitleAsync(subtitle);

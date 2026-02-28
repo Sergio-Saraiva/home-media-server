@@ -1,6 +1,8 @@
 using MediaServer.Api.Infrastructure;
 using MediaServer.Application.Models;
 using MediaServer.IOC;
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,7 +64,28 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseCors("AllowAll");
+app.UseCors("AllowWebClient");
+
+var provider = new FileExtensionContentTypeProvider();
+
+// The critical mapping for WebAssembly
+provider.Mappings[".wasm"] = "application/wasm";
+// The data file Emscripten uses for the virtual file system
+provider.Mappings[".data"] = "application/octet-stream";
+// The fontconfig XML file
+provider.Mappings[".conf"] = "application/xml"; 
+
+// .js and .woff2 are usually supported by default in .NET, 
+// but it is safer to ensure .woff2 is mapped
+if (!provider.Mappings.ContainsKey(".woff2")) 
+{
+    provider.Mappings[".woff2"] = "font/woff2";
+}
+
+var wasmPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "wasm");
+
+// 4. Enable Static File serving
+
 
 app.UseExceptionHandler(_ => { });
 
@@ -71,5 +94,17 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(wasmPath),
+    RequestPath = "/wasm",
+    ContentTypeProvider = provider,
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers["Cache-Control"] = "public,max-age=86400";
+        ctx.Context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+    }
+});
 
 app.Run();

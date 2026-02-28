@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Text.Json;
 using MediaServer.Application.Common.Events;
 using MediaServer.Application.Interfaces.Queues;
 using MediaServer.Application.Interfaces.Repositories;
 using MediaServer.Application.Interfaces.Services;
 using MediaServer.Domain.Entities;
+using MediaServer.Infrastructure.Media;
 using MediaServer.Infrastructure.Persistence.Context;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -205,41 +207,115 @@ public class VodTranscodeWorker : BackgroundService
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
     
-    private async Task ExtractEmbeddedSubtitlesAsync(string sourceFile, string outputDir, Guid mediaId, CancellationToken cancellationToken)
+    private static readonly HashSet<string> AssCodecs = new(StringComparer.OrdinalIgnoreCase) { "ass", "ssa" };
+    private static readonly HashSet<string> TextCodecs = new(StringComparer.OrdinalIgnoreCase) { "subrip", "srt", "webvtt", "mov_text" };
+    private static readonly HashSet<string> ImageCodecs = new(StringComparer.OrdinalIgnoreCase) { "hdmv_pgs_subtitle", "pgssub", "dvd_subtitle", "dvdsub", "dvbsub" };
+
+    private async Task<List<FfProbeStream>> GetSubtitleStreamsAsync(string filePath, CancellationToken cancellationToken)
     {
-        var vttPath = Path.Combine(outputDir, "embedded.vtt");
-        var args = $"-i \"{sourceFile}\" -map 0:s:0? -c:s webvtt \"{vttPath}\"";
-        
-        var processInfo = new ProcessStartInfo 
-        { 
-            FileName = "ffmpeg", 
-            Arguments = args, 
-            RedirectStandardError = true,
+        var processInfo = new ProcessStartInfo
+        {
+            FileName = "ffprobe",
+            Arguments = $"-v quiet -print_format json -show_streams -select_streams s \"{filePath}\"",
+            RedirectStandardOutput = true,
             CreateNoWindow = true,
             UseShellExecute = false
         };
 
         using var process = Process.Start(processInfo);
-        var stdErrTask = process!.StandardError.ReadToEndAsync(cancellationToken);
-        
+        var json = await process!.StandardOutput.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
-        var errorOutput = await stdErrTask;
 
-        if (process.ExitCode == 0 && File.Exists(vttPath))
+        if (process.ExitCode != 0) return [];
+
+        var output = JsonSerializer.Deserialize<FfProbeOutput>(json);
+        return output?.Streams ?? [];
+    }
+
+    private async Task ExtractEmbeddedSubtitlesAsync(string sourceFile, string outputDir, Guid mediaId, CancellationToken cancellationToken)
+    {
+        var subtitleStreams = await GetSubtitleStreamsAsync(sourceFile, cancellationToken);
+
+        if (subtitleStreams.Count == 0)
         {
-            _logger.LogInformation("Subtitle extraction successful for {Id}. Log:\n{Log}", mediaId, errorOutput);
-            
+            _logger.LogInformation("No subtitle streams found in {Id}.", mediaId);
+            return;
+        }
+
+        _logger.LogInformation("Found {Count} subtitle stream(s) in {Id}.", subtitleStreams.Count, mediaId);
+
+        var extractedTracks = new List<SubtitleTrack>();
+
+        foreach (var stream in subtitleStreams)
+        {
+            var codecName = stream.CodecName?.ToLowerInvariant() ?? "";
+
+            if (ImageCodecs.Contains(codecName))
+            {
+                _logger.LogInformation("Skipping image-based subtitle stream {Index} (codec: {Codec}) for {Id}.", stream.Index, codecName, mediaId);
+                continue;
+            }
+
+            bool isAss = AssCodecs.Contains(codecName);
+            bool isText = TextCodecs.Contains(codecName);
+
+            if (!isAss && !isText)
+            {
+                _logger.LogWarning("Unknown subtitle codec '{Codec}' at stream {Index} for {Id}, skipping.", codecName, stream.Index, mediaId);
+                continue;
+            }
+
+            string ext = isAss ? "ass" : "vtt";
+            string ffmpegCodec = isAss ? "ass" : "webvtt";
+            string lang = stream.Tags?.Language ?? "und";
+            string label = stream.Tags?.Title ?? lang;
+            string fileName = $"sub_{stream.Index}_{lang}.{ext}";
+            string outPath = Path.Combine(outputDir, fileName);
+
+            var args = $"-i \"{sourceFile}\" -map 0:{stream.Index} -c:s {ffmpegCodec} \"{outPath}\"";
+
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = "ffmpeg",
+                Arguments = args,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+
+            using var process = Process.Start(processInfo);
+            var stdErrTask = process!.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            var errorOutput = await stdErrTask;
+
+            if (process.ExitCode == 0 && File.Exists(outPath))
+            {
+                _logger.LogInformation("Extracted subtitle stream {Index} ({Lang}, {Codec}) for {Id}.", stream.Index, lang, codecName, mediaId);
+                extractedTracks.Add(new SubtitleTrack
+                {
+                    Id = Guid.CreateVersion7(),
+                    MediaItemId = mediaId,
+                    Language = lang,
+                    Label = label,
+                    FilePath = outPath,
+                    Format = ext
+                });
+            }
+            else
+            {
+                _logger.LogWarning("Failed to extract subtitle stream {Index} for {Id}. Log:\n{Log}", stream.Index, mediaId, errorOutput);
+            }
+        }
+
+        if (extractedTracks.Count > 0)
+        {
             using var scope = _serviceScopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<MediaDbContext>();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-            
-            var sub = new SubtitleTrack { Id = Guid.CreateVersion7(), MediaItemId = mediaId, Language = "en", Label = "Extracted Track", FilePath = vttPath };
-            dbContext.SubtitleTracks.Add(sub);
+
+            dbContext.SubtitleTracks.AddRange(extractedTracks);
             await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        else
-        {
-            _logger.LogWarning("No embedded subtitles extracted for {Id}. Log:\n{Log}", mediaId, errorOutput);
+            _logger.LogInformation("Saved {Count} subtitle track(s) for {Id}.", extractedTracks.Count, mediaId);
         }
     }
 }

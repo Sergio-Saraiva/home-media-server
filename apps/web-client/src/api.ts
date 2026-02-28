@@ -17,6 +17,7 @@ export interface SubtitleDto {
   language: string;
   label: string;
   filePath: string;
+  format: string;
 }
 
 export interface CatalogItemDTO {
