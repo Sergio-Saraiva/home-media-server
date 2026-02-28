@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import shaka from 'shaka-player/dist/shaka-player.ui';
 import { api, BASE_URL, type SubtitleDto, type TranscodeStatus, type MediaItemDto } from '../api';
 
-type ControlMode = 'playback' | 'controls' | 'subtitle-menu' | 'episode-list';
+type ControlMode = 'playback' | 'controls' | 'subtitle-menu' | 'episode-list' | 'profile-menu';
 
 // Control bar button indices — first 4 are always present
 const CTRL_BACK = 0;
@@ -46,9 +46,10 @@ export const Player = () => {
 
   // Dynamic button indices — shift right-side buttons when TV context is present
   const CTRL_CC         = hasTvContext ? 7 : 4;
-  const CTRL_MUTE       = hasTvContext ? 8 : 5;
-  const CTRL_FULLSCREEN = hasTvContext ? 9 : 6;
-  const CTRL_COUNT      = hasTvContext ? 10 : 7;
+  const CTRL_QTY        = hasTvContext ? 8 : 5;
+  const CTRL_MUTE       = hasTvContext ? 9 : 6;
+  const CTRL_FULLSCREEN = hasTvContext ? 10 : 7;
+  const CTRL_COUNT      = hasTvContext ? 11 : 8;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<shaka.Player | null>(null);
@@ -79,6 +80,12 @@ export const Player = () => {
   const [subtitlesLoading, setSubtitlesLoading] = useState(true);
   const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
 
+  // Profile / quality state
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileFocusIndex, setProfileFocusIndex] = useState(0); // 0=Auto, 1..n=variants
+  const [variantTracks, setVariantTracks] = useState<shaka.extern.Track[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<number | null>(null); // null=Auto
+
   // Transcode state
   const [transcodeStatus, setTranscodeStatus] = useState<TranscodeStatus | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,6 +98,7 @@ export const Player = () => {
       setControlsVisible(false);
       setControlMode('playback');
       setSubtitleMenuOpen(false);
+      setProfileMenuOpen(false);
     }, 4000);
   }, []);
 
@@ -131,6 +139,9 @@ export const Player = () => {
 
         if (!status || status.status === 'Completed') {
           player.load(`${BASE_URL}/Streaming/hls/master/${mediaId}.m3u8`)
+            .then(() => {
+              if (!cancelled) setVariantTracks(player.getVariantTracks());
+            })
             .catch(err => console.error('Shaka load error:', err));
           break;
         }
@@ -228,6 +239,8 @@ export const Player = () => {
     setSubtitlesLoading(true);
     try {
       await player.load(`${BASE_URL}/Streaming/hls/master/${ep.id}.m3u8`);
+      setVariantTracks(player.getVariantTracks());
+      setActiveProfileId(null);
     } catch (err) {
       console.error('Episode load error:', err);
     }
@@ -254,6 +267,11 @@ export const Player = () => {
         setSubtitleMenuOpen(true);
         setControlMode('subtitle-menu');
         setSubtitleFocusIndex(0);
+        break;
+      case CTRL_QTY:
+        setProfileMenuOpen(true);
+        setControlMode('profile-menu');
+        setProfileFocusIndex(0);
         break;
       case CTRL_MUTE:       toggleMute(); break;
       case CTRL_FULLSCREEN: toggleFullscreen(); break;
@@ -317,6 +335,32 @@ const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
   setControlMode('controls');
   showControlsPersist();
 }, [mediaId, hasTvContext, episodes, currentEpisodeIndex, showControlsPersist, destroyOctopus]);
+
+  const getProfileLabel = useCallback((track: shaka.extern.Track) => {
+    const codec = track.videoCodec ?? '';
+    if (codec.startsWith('hvc') || codec.startsWith('hev')) return 'HDR (HEVC)';
+    if (codec.startsWith('avc')) return 'SDR (H.264)';
+    return codec;
+  }, []);
+
+  const handleProfileSelect = useCallback((track: shaka.extern.Track | null) => {
+    const player = playerRef.current;
+    if (!player) return;
+
+    if (!track) {
+      // Auto mode — let Shaka ABR decide
+      player.configure('abr.enabled', true);
+      setActiveProfileId(null);
+    } else {
+      // Lock to specific variant
+      player.configure('abr.enabled', false);
+      player.selectVariantTrack(track, true);
+      setActiveProfileId(track.id);
+    }
+    setProfileMenuOpen(false);
+    setControlMode('controls');
+    showControlsPersist();
+  }, [showControlsPersist]);
 
   // --- Keyboard handler (state machine) ---
   useEffect(() => {
@@ -446,13 +490,43 @@ const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
           return currentMode;
         }
 
+        // ---- PROFILE-MENU MODE ----
+        if (currentMode === 'profile-menu') {
+          if (e.keyCode === 10009) { navigate(-1); return currentMode; }
+          if (isBack || key === 'ArrowLeft') {
+            e.preventDefault();
+            setProfileMenuOpen(false);
+            return 'controls';
+          }
+          const total = variantTracks.length + 1; // +1 for Auto
+          switch (key) {
+            case 'ArrowUp':
+              e.preventDefault();
+              setProfileFocusIndex(prev => Math.max(0, prev - 1));
+              break;
+            case 'ArrowDown':
+              e.preventDefault();
+              setProfileFocusIndex(prev => Math.min(total - 1, prev + 1));
+              break;
+            case 'Enter':
+              e.preventDefault();
+              setProfileFocusIndex(prev => {
+                const track = prev === 0 ? null : variantTracks[prev - 1];
+                handleProfileSelect(track);
+                return prev;
+              });
+              break;
+          }
+          return currentMode;
+        }
+
         return currentMode;
       });
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, togglePlayPause, seekBy, activateControl, handleSubtitleSelect, subtitles, showControls, showControlsPersist, navigateToEpisode, episodes]);
+  }, [navigate, togglePlayPause, seekBy, activateControl, handleSubtitleSelect, subtitles, showControls, showControlsPersist, navigateToEpisode, episodes, handleProfileSelect, variantTracks]);
 
   // Initial show
   useEffect(() => {
@@ -600,6 +674,23 @@ const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
               </span>
             )}
           </button>
+          <button
+            style={{
+              ...btnStyle(CTRL_QTY),
+              fontSize: '0.75rem', fontWeight: 700,
+              color: activeProfileId !== null ? '#e50914' : 'white',
+              borderColor: activeProfileId !== null ? '#e50914' : (controlMode === 'controls' && controlFocusIndex === CTRL_QTY ? '#fff' : 'transparent'),
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1.2,
+            }}
+            onClick={() => { setProfileMenuOpen(o => !o); setControlMode('profile-menu'); setProfileFocusIndex(0); }}
+          >
+            <span>QTY</span>
+            {activeProfileId !== null && (
+              <span style={{ fontSize: '0.55rem', letterSpacing: '0.06em', opacity: 0.85 }}>
+                {getProfileLabel(variantTracks.find(t => t.id === activeProfileId) ?? variantTracks[0])}
+              </span>
+            )}
+          </button>
           <button style={btnStyle(CTRL_MUTE)} onClick={toggleMute}>{volumeIcon}</button>
           <button style={btnStyle(CTRL_FULLSCREEN)} onClick={toggleFullscreen}>{isFullscreen ? '✕FS' : '⛶'}</button>
         </div>
@@ -650,6 +741,7 @@ const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
                 const isFocused = subtitleFocusIndex === i;
                 const isActive = sub === null ? activeSubtitleId === null : activeSubtitleId === sub.id;
                 const label = sub === null ? 'Off' : (sub.label || sub.language);
+                const language = sub === null ? 'Off' : (sub.language)
                 return (
                   <div key={sub?.id ?? 'off'} style={{ padding: '2px 8px' }}>
                     <button
@@ -669,6 +761,7 @@ const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
                     >
                       <span style={{ width: 18, flexShrink: 0, fontSize: '0.85rem', color: isActive ? (isFocused ? '#111' : '#e50914') : 'transparent' }}>✓</span>
                       <span style={{ flex: 1 }}>{label}</span>
+                      <span style={{ flex: 1 }}>{language}</span>
                       {isActive && !isFocused && (
                         <span style={{ fontSize: '0.62rem', background: 'rgba(229,9,20,0.15)', color: '#e50914', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
                           ACTIVE
@@ -747,6 +840,85 @@ const handleSubtitleSelect = useCallback(async (sub: SubtitleDto | null) => {
                     {isCurrent && !isFocused && (
                       <span style={{ fontSize: '0.62rem', background: 'rgba(229,9,20,0.15)', color: '#e50914', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
                         NOW
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Footer hint */}
+          <div style={{ padding: '8px 18px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>↑/↓ navigate · Enter select · ← close</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── PROFILE / QUALITY PANEL ── */}
+      {profileMenuOpen && controlsVisible && (
+        <div
+          className="subtitle-panel"
+          style={{
+            position: 'absolute',
+            bottom: 148,
+            left: '50%',
+            width: 320,
+            background: 'rgba(16,16,16,0.88)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 12px 48px rgba(0,0,0,0.75)',
+            zIndex: 20,
+            overflow: 'hidden',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div style={{
+            padding: '14px 18px 12px',
+            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+              Quality
+            </span>
+            {activeProfileId !== null && (
+              <span style={{ fontSize: '0.68rem', background: '#e50914', color: '#fff', padding: '2px 9px', borderRadius: 99, fontWeight: 700, letterSpacing: '0.05em' }}>
+                {getProfileLabel(variantTracks.find(t => t.id === activeProfileId) ?? variantTracks[0])}
+              </span>
+            )}
+          </div>
+
+          {/* Profile list */}
+          <div style={{ padding: '6px 0 8px', maxHeight: 260, overflowY: 'auto' }}>
+            {[null, ...variantTracks].map((track, i) => {
+              const isFocused = profileFocusIndex === i;
+              const isActive = track === null ? activeProfileId === null : activeProfileId === track.id;
+              const label = track === null ? 'Auto' : getProfileLabel(track);
+              return (
+                <div key={track?.id ?? 'auto'} style={{ padding: '2px 8px' }}>
+                  <button
+                    onClick={() => handleProfileSelect(track)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      width: '100%', textAlign: 'left',
+                      padding: '10px 12px',
+                      background: isFocused ? 'rgba(255,255,255,0.93)' : 'transparent',
+                      color: isFocused ? '#111' : isActive ? '#e50914' : 'rgba(255,255,255,0.82)',
+                      border: 'none', cursor: 'pointer',
+                      fontSize: '0.95rem',
+                      fontWeight: isActive || isFocused ? 600 : 400,
+                      transition: 'background 0.12s',
+                      borderRadius: 9,
+                    }}
+                  >
+                    <span style={{ width: 18, flexShrink: 0, fontSize: '0.85rem', color: isActive ? (isFocused ? '#111' : '#e50914') : 'transparent' }}>✓</span>
+                    <span style={{ flex: 1 }}>{label}</span>
+                    {isActive && !isFocused && (
+                      <span style={{ fontSize: '0.62rem', background: 'rgba(229,9,20,0.15)', color: '#e50914', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
+                        ACTIVE
                       </span>
                     )}
                   </button>
